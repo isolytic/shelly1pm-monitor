@@ -207,6 +207,10 @@ a {
 
 .settings-drawer {
   right: 18px;
+  left: 18px;
+  width: auto;
+  max-width: 1320px;
+  margin-left: auto;
   transform: translateX(calc(100% + 24px));
   display: grid;
   gap: 18px;
@@ -505,6 +509,55 @@ a {
   gap: 14px;
 }
 
+.settings-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-card {
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.settings-card-compact {
+  align-content: start;
+}
+
+.settings-card-header {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-card-header h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.03em;
+  font-size: 1.35rem;
+}
+
+.settings-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+  max-width: 78ch;
+}
+
+.settings-grid-1 {
+  grid-template-columns: 1fr;
+}
+
+.settings-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .settings-grid label {
   display: grid;
   gap: 8px;
@@ -602,6 +655,12 @@ a {
   padding: 16px;
 }
 
+.settings-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
 .token-list {
   display: flex;
   flex-wrap: wrap;
@@ -652,6 +711,12 @@ a {
   .hero-stats.wide {
     grid-template-columns: 1fr;
   }
+
+  .settings-grid-2,
+  .settings-grid-3,
+  .settings-footer {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -665,6 +730,15 @@ a {
 
   .drawer-actions {
     flex-direction: column;
+  }
+
+  .settings-drawer {
+    top: 12px;
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    max-width: none;
+    padding: 18px;
   }
 
   .controls-row,

@@ -732,75 +732,114 @@ function App() {
           <button className="icon-button" onClick={() => setIsSettingsOpen(false)} type="button">×</button>
         </div>
 
-        <div className="settings-grid">
-          <label>
-            <span>Shelly URL</span>
-            <input value={draftSettings.shellyUrl} onChange={(event) => updateDraftSetting("shellyUrl", event.target.value)} />
-          </label>
-          <label>
-            <span>Public web URL</span>
-            <input value={draftSettings.publicWebUrl} onChange={(event) => updateDraftSetting("publicWebUrl", event.target.value)} />
-          </label>
-          <label>
-            <span>Polling interval (seconds)</span>
-            <input type="number" min="5" value={draftSettings.pollIntervalSeconds} onChange={(event) => updateDraftSetting("pollIntervalSeconds", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Cost per kWh (USD)</span>
-            <input type="number" min="0" step="0.01" value={draftSettings.costPerKilowattHour} onChange={(event) => updateDraftSetting("costPerKilowattHour", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Activation threshold (W)</span>
-            <input type="number" min="0" value={draftSettings.activationPowerThresholdWatts} onChange={(event) => updateDraftSetting("activationPowerThresholdWatts", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Critical threshold (W)</span>
-            <input type="number" min="0" value={draftSettings.criticalPowerThresholdWatts} onChange={(event) => updateDraftSetting("criticalPowerThresholdWatts", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Significant usage threshold (W)</span>
-            <input type="number" min="0" value={draftSettings.significantPowerThresholdWatts} onChange={(event) => updateDraftSetting("significantPowerThresholdWatts", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Runs per hour alert</span>
-            <input type="number" min="1" value={draftSettings.runsPerHourAlertThreshold} onChange={(event) => updateDraftSetting("runsPerHourAlertThreshold", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Long run alert (minutes)</span>
-            <input type="number" min="1" value={draftSettings.longRunAlertMinutes} onChange={(event) => updateDraftSetting("longRunAlertMinutes", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>No run alert (hours)</span>
-            <input type="number" min="1" value={draftSettings.noRunAlertHours} onChange={(event) => updateDraftSetting("noRunAlertHours", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Quiet window (hours)</span>
-            <input type="number" min="1" value={draftSettings.quietWindowHours} onChange={(event) => updateDraftSetting("quietWindowHours", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Notification cooldown (hours)</span>
-            <input type="number" min="1" value={draftSettings.notificationCooldownHours} onChange={(event) => updateDraftSetting("notificationCooldownHours", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Critical cooldown (minutes)</span>
-            <input type="number" min="1" value={draftSettings.criticalNotificationCooldownMinutes} onChange={(event) => updateDraftSetting("criticalNotificationCooldownMinutes", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Stale polling alert (minutes)</span>
-            <input type="number" min="1" value={draftSettings.stalePollingAlertMinutes} onChange={(event) => updateDraftSetting("stalePollingAlertMinutes", Number(event.target.value))} />
-          </label>
-          <label>
-            <span>Unreachable alert (minutes)</span>
-            <input type="number" min="1" value={draftSettings.deviceUnreachableAlertMinutes} onChange={(event) => updateDraftSetting("deviceUnreachableAlertMinutes", Number(event.target.value))} />
-          </label>
-          <label className="full-width">
-            <span>Discord webhook URL</span>
-            <input value={draftSettings.discordWebhookUrl} onChange={(event) => updateDraftSetting("discordWebhookUrl", event.target.value)} />
-          </label>
-          <label className="full-width">
-            <span>Discord message template</span>
-            <textarea rows={6} value={draftSettings.discordMessageTemplate} onChange={(event) => updateDraftSetting("discordMessageTemplate", event.target.value)} />
-          </label>
+        <div className="settings-layout">
+          <section className="settings-card">
+            <div className="settings-card-header">
+              <p className="eyebrow">Device</p>
+              <h3>Connection and meter basics</h3>
+              <p className="settings-copy">Core connection details and how often the monitor samples your Shelly.</p>
+            </div>
+            <div className="settings-grid settings-grid-2">
+              <label className="full-width">
+                <span>Shelly URL</span>
+                <input value={draftSettings.shellyUrl} onChange={(event) => updateDraftSetting("shellyUrl", event.target.value)} />
+              </label>
+              <label className="full-width">
+                <span>Public web URL</span>
+                <input value={draftSettings.publicWebUrl} onChange={(event) => updateDraftSetting("publicWebUrl", event.target.value)} />
+              </label>
+              <label>
+                <span>Polling interval (seconds)</span>
+                <input type="number" min="5" value={draftSettings.pollIntervalSeconds} onChange={(event) => updateDraftSetting("pollIntervalSeconds", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Cost per kWh (USD)</span>
+                <input type="number" min="0" step="0.01" value={draftSettings.costPerKilowattHour} onChange={(event) => updateDraftSetting("costPerKilowattHour", Number(event.target.value))} />
+              </label>
+            </div>
+          </section>
+
+          <section className="settings-card">
+            <div className="settings-card-header">
+              <p className="eyebrow">Thresholds</p>
+              <h3>Pump state and load detection</h3>
+              <p className="settings-copy">Define what counts as a run, what counts as meaningful usage, and when a load becomes critical.</p>
+            </div>
+            <div className="settings-grid settings-grid-3">
+              <label>
+                <span>Activation threshold (W)</span>
+                <input type="number" min="0" value={draftSettings.activationPowerThresholdWatts} onChange={(event) => updateDraftSetting("activationPowerThresholdWatts", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Significant usage threshold (W)</span>
+                <input type="number" min="0" value={draftSettings.significantPowerThresholdWatts} onChange={(event) => updateDraftSetting("significantPowerThresholdWatts", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Critical threshold (W)</span>
+                <input type="number" min="0" value={draftSettings.criticalPowerThresholdWatts} onChange={(event) => updateDraftSetting("criticalPowerThresholdWatts", Number(event.target.value))} />
+              </label>
+            </div>
+          </section>
+
+          <section className="settings-card">
+            <div className="settings-card-header">
+              <p className="eyebrow">Alert Rules</p>
+              <h3>Timing, cycle, and health alerts</h3>
+              <p className="settings-copy">Control when routine alerts fire, when critical alerts can repeat, and how aggressive anomaly detection should be.</p>
+            </div>
+            <div className="settings-grid settings-grid-3">
+              <label>
+                <span>Quiet window (hours)</span>
+                <input type="number" min="1" value={draftSettings.quietWindowHours} onChange={(event) => updateDraftSetting("quietWindowHours", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Notification cooldown (hours)</span>
+                <input type="number" min="1" value={draftSettings.notificationCooldownHours} onChange={(event) => updateDraftSetting("notificationCooldownHours", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Critical cooldown (minutes)</span>
+                <input type="number" min="1" value={draftSettings.criticalNotificationCooldownMinutes} onChange={(event) => updateDraftSetting("criticalNotificationCooldownMinutes", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Runs per hour alert</span>
+                <input type="number" min="1" value={draftSettings.runsPerHourAlertThreshold} onChange={(event) => updateDraftSetting("runsPerHourAlertThreshold", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Long run alert (minutes)</span>
+                <input type="number" min="1" value={draftSettings.longRunAlertMinutes} onChange={(event) => updateDraftSetting("longRunAlertMinutes", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>No run alert (hours)</span>
+                <input type="number" min="1" value={draftSettings.noRunAlertHours} onChange={(event) => updateDraftSetting("noRunAlertHours", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Stale polling alert (minutes)</span>
+                <input type="number" min="1" value={draftSettings.stalePollingAlertMinutes} onChange={(event) => updateDraftSetting("stalePollingAlertMinutes", Number(event.target.value))} />
+              </label>
+              <label>
+                <span>Unreachable alert (minutes)</span>
+                <input type="number" min="1" value={draftSettings.deviceUnreachableAlertMinutes} onChange={(event) => updateDraftSetting("deviceUnreachableAlertMinutes", Number(event.target.value))} />
+              </label>
+            </div>
+          </section>
+
+          <section className="settings-card">
+            <div className="settings-card-header">
+              <p className="eyebrow">Discord</p>
+              <h3>Webhook and message template</h3>
+              <p className="settings-copy">Customize the webhook destination and the notification body sent for activation, warning, and critical alerts.</p>
+            </div>
+            <div className="settings-grid settings-grid-1">
+              <label className="full-width">
+                <span>Discord webhook URL</span>
+                <input value={draftSettings.discordWebhookUrl} onChange={(event) => updateDraftSetting("discordWebhookUrl", event.target.value)} />
+              </label>
+              <label className="full-width">
+                <span>Discord message template</span>
+                <textarea rows={6} value={draftSettings.discordMessageTemplate} onChange={(event) => updateDraftSetting("discordMessageTemplate", event.target.value)} />
+              </label>
+            </div>
+          </section>
         </div>
 
         <div className="template-panel">
@@ -813,12 +852,29 @@ function App() {
           <p className="preview-text">{previewMessage}</p>
         </div>
 
-        <div className="drawer-actions">
-          <input id={fileInputId} ref={fileInputRef} accept=".sqlite,.db,application/octet-stream" className="hidden-file-input" onChange={handleImportDatabase} type="file" />
-          <button className="ghost-button" onClick={handleExportDatabase} type="button">Export database</button>
-          <label className="ghost-button file-label" htmlFor={fileInputId}>Import database</label>
-          <button className="ghost-button" onClick={handleTestWebhook} type="button">Test Discord webhook</button>
-          <button className="primary-button" disabled={!hasUnsavedSettings} onClick={handleSaveSettings} type="button">Save settings</button>
+        <div className="settings-footer">
+          <div className="settings-card settings-card-compact">
+            <div className="settings-card-header">
+              <p className="eyebrow">Database</p>
+              <h3>Move or back up stored history</h3>
+            </div>
+            <div className="drawer-actions">
+              <input id={fileInputId} ref={fileInputRef} accept=".sqlite,.db,application/octet-stream" className="hidden-file-input" onChange={handleImportDatabase} type="file" />
+              <button className="ghost-button" onClick={handleExportDatabase} type="button">Export database</button>
+              <label className="ghost-button file-label" htmlFor={fileInputId}>Import database</label>
+            </div>
+          </div>
+
+          <div className="settings-card settings-card-compact">
+            <div className="settings-card-header">
+              <p className="eyebrow">Actions</p>
+              <h3>Validate and save changes</h3>
+            </div>
+            <div className="drawer-actions">
+              <button className="ghost-button" onClick={handleTestWebhook} type="button">Test Discord webhook</button>
+              <button className="primary-button" disabled={!hasUnsavedSettings} onClick={handleSaveSettings} type="button">Save settings</button>
+            </div>
+          </div>
         </div>
         <p className="status-copy">{saveState ?? testState ?? "Settings are stored in the monitor database and applied live."}</p>
       </aside>

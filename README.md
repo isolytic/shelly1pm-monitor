@@ -8,7 +8,8 @@ Web-based monitoring for a Shelly 1PM attached to a sump pump. The app polls the
 - Stores historical wattage samples and incremental energy usage in SQLite
 - Detects sump pump activations based on a configurable wattage threshold
 - Suppresses Discord notifications so only one alert can be sent every 8 hours
-- Serves a responsive React dashboard with live status, graphs, and activation history
+- Serves a responsive React dashboard with live status, dark-mode graphs, zoom/pan controls, and activation history
+- Stores editable runtime settings in SQLite so the monitored Shelly URL, thresholds, webhook, and Discord message template can be changed from the web UI
 - Publishes a production image to GHCR for `docker compose` deployments
 
 ## Environment
@@ -67,7 +68,20 @@ An alert is sent only when all of the following are true:
 
 The webhook message includes the activation time, live wattage, and the configured `PUBLIC_WEB_URL`.
 
+## Web UI settings
+
+The app includes a settings drawer for:
+
+- Shelly IP/URL
+- Poll interval
+- Activation and significant-usage thresholds
+- Quiet-window and notification cooldown values
+- Public web URL
+- Discord webhook URL
+- Custom Discord message templates with variables such as `%live_load%`, `%usage_today%`, `%timestamp%`, and `%public_web_url%`
+
+The settings drawer also includes a test-webhook button that sends the rendered message immediately.
+
 ## Notes on Shelly energy units
 
 The app stores the Shelly meter `total` value as watt-minutes and derives kWh by dividing by `60000`. That matches the Gen1 Shelly meter semantics.
-

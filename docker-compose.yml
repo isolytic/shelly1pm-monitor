@@ -16,9 +16,9 @@ services:
       QUIET_WINDOW_HOURS: ${QUIET_WINDOW_HOURS:-8}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8787}
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      DISCORD_MESSAGE_TEMPLATE: ${DISCORD_MESSAGE_TEMPLATE:-Sump pump activity detected at %timestamp%. Live load: %live_load%. Usage today: %usage_today%. Status: %current_status%. Web UI: %public_web_url%}
     volumes:
       - shelly1pm-monitor-data:/app/data
 
 volumes:
   shelly1pm-monitor-data:
-

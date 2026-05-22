@@ -1,4 +1,10 @@
-import { config, NOTIFICATION_COOLDOWN_MS, QUIET_WINDOW_MS } from "./config.js";
+import {
+  DISCORD_TEMPLATE_VARIABLES,
+  defaultMonitorSettings,
+  parseMonitorSettings,
+  validateMonitorSettings,
+  type MonitorSettings
+} from "./config.js";
 import { MonitorDatabase } from "./db.js";
 import { sendDiscordWebhook } from "./notifier.js";
 import { ShellyClient } from "./shelly.js";
@@ -9,24 +15,21 @@ const wattMinutesToKilowattHours = (wattMinutes: number) => wattMinutes / 60000;
 
 export class ShellyMonitorService {
   readonly db = new MonitorDatabase();
-  readonly client = new ShellyClient(config.shellyUrl);
   private timer: NodeJS.Timeout | null = null;
   private pollInFlight = false;
+  private settings: MonitorSettings = defaultMonitorSettings;
+  private client = new ShellyClient(defaultMonitorSettings.shellyUrl);
   private deviceInfo: ShellyDeviceResponse | null = null;
   private settingsInfo: ShellySettingsResponse | null = null;
   private lastSuccessfulPollAt: string | null = null;
   private lastPollError: string | null = null;
 
   async initialize() {
-    const [deviceInfo, settingsInfo] = await Promise.all([
-      this.client.getDevice(),
-      this.client.getSettings()
-    ]);
-
-    this.deviceInfo = deviceInfo;
-    this.settingsInfo = settingsInfo;
+    this.settings = this.db.getSettings();
+    this.client = new ShellyClient(this.settings.shellyUrl);
+    await this.refreshDeviceMetadata();
     await this.pollOnce();
-    this.timer = setInterval(() => void this.pollOnce(), config.pollIntervalSeconds * 1000);
+    this.startPolling();
   }
 
   stop() {
@@ -68,12 +71,58 @@ export class ShellyMonitorService {
 
   getDeviceSummary() {
     return {
-      shellyUrl: config.shellyUrl,
-      publicWebUrl: config.publicWebUrl,
+      shellyUrl: this.settings.shellyUrl,
+      publicWebUrl: this.settings.publicWebUrl,
       device: this.deviceInfo,
       settings: this.settingsInfo,
       lastSuccessfulPollAt: this.lastSuccessfulPollAt,
       lastPollError: this.lastPollError
+    };
+  }
+
+  getSettings() {
+    return {
+      ...this.settings,
+      availableTemplateVariables: [...DISCORD_TEMPLATE_VARIABLES],
+      discordMessagePreview: this.renderDiscordMessage()
+    };
+  }
+
+  async updateSettings(input: Partial<MonitorSettings>) {
+    const nextSettings = parseMonitorSettings({ ...this.settings, ...input });
+    validateMonitorSettings(nextSettings);
+
+    const previousSettings = this.settings;
+    this.settings = nextSettings;
+    this.db.saveSettings(nextSettings);
+
+    if (nextSettings.shellyUrl !== previousSettings.shellyUrl) {
+      this.client = new ShellyClient(nextSettings.shellyUrl);
+      await this.refreshDeviceMetadata();
+      await this.pollOnce();
+    }
+
+    if (nextSettings.pollIntervalSeconds !== previousSettings.pollIntervalSeconds) {
+      this.startPolling();
+    }
+
+    return this.getSettings();
+  }
+
+  async testDiscordWebhook(input?: Partial<MonitorSettings>) {
+    const testSettings = parseMonitorSettings({ ...this.settings, ...input });
+    validateMonitorSettings(testSettings);
+
+    if (!testSettings.discordWebhookUrl) {
+      throw new Error("Discord webhook URL is not configured");
+    }
+
+    const content = `[test] ${this.renderDiscordMessage(undefined, undefined, testSettings)}`;
+    await sendDiscordWebhook(testSettings.discordWebhookUrl, content);
+
+    return {
+      ok: true,
+      renderedMessage: content
     };
   }
 
@@ -89,8 +138,8 @@ export class ShellyMonitorService {
       lastSampleAt: lastSample?.recordedAt ?? null,
       todayEnergyKilowattHours: wattMinutesToKilowattHours(stats.todayEnergyWattMinutes),
       todayPeakWatts: stats.todayPeakWatts,
-      quietWindowHours: config.quietWindowHours,
-      notificationCooldownHours: config.notificationCooldownHours,
+      quietWindowHours: this.settings.quietWindowHours,
+      notificationCooldownHours: this.settings.notificationCooldownHours,
       lastNotificationSentAt,
       openActivation: stats.openActivation
         ? this.serializeActivation(stats.openActivation)
@@ -104,8 +153,8 @@ export class ShellyMonitorService {
           }
         : null,
       thresholds: {
-        activationPowerWatts: config.activationPowerThresholdWatts,
-        significantPowerWatts: config.significantPowerThresholdWatts
+        activationPowerWatts: this.settings.activationPowerThresholdWatts,
+        significantPowerWatts: this.settings.significantPowerThresholdWatts
       },
       health: this.getDeviceSummary()
     };
@@ -138,7 +187,7 @@ export class ShellyMonitorService {
   }
 
   private async handleActivation(sample: PollSample) {
-    const isActive = sample.powerWatts >= config.activationPowerThresholdWatts;
+    const isActive = sample.powerWatts >= this.settings.activationPowerThresholdWatts;
     let openEvent = this.db.getOpenActivationEvent();
 
     if (isActive && !openEvent) {
@@ -161,37 +210,31 @@ export class ShellyMonitorService {
   }
 
   private async shouldSendNotification(recordedAtIso: string) {
-    const quietWindowStart = new Date(new Date(recordedAtIso).getTime() - QUIET_WINDOW_MS).toISOString();
-    const cooldownStart = new Date(new Date(recordedAtIso).getTime() - NOTIFICATION_COOLDOWN_MS).toISOString();
+    const quietWindowMs = this.settings.quietWindowHours * 60 * 60 * 1000;
+    const cooldownMs = this.settings.notificationCooldownHours * 60 * 60 * 1000;
+    const quietWindowStart = new Date(new Date(recordedAtIso).getTime() - quietWindowMs).toISOString();
+    const cooldownStart = new Date(new Date(recordedAtIso).getTime() - cooldownMs).toISOString();
     const quietWindowWasEmpty = !this.db.hasSignificantUsageBetween(
       quietWindowStart,
       recordedAtIso,
-      config.significantPowerThresholdWatts
+      this.settings.significantPowerThresholdWatts
     );
     const lastNotificationSentAt = this.db.getLastNotificationSentAt();
     const cooldownElapsed = !lastNotificationSentAt || lastNotificationSentAt < cooldownStart;
 
-    return quietWindowWasEmpty && cooldownElapsed && Boolean(config.discordWebhookUrl);
+    return quietWindowWasEmpty && cooldownElapsed && Boolean(this.settings.discordWebhookUrl);
   }
 
   private async sendActivationNotification(event: ActivationEventRecord, sample: PollSample) {
-    if (!config.discordWebhookUrl) {
+    if (!this.settings.discordWebhookUrl) {
       return;
     }
 
-    const timestamp = new Date(sample.recordedAt).toLocaleString("en-US", {
-      dateStyle: "medium",
-      timeStyle: "short"
-    });
-    const content = [
-      `Sump pump activity detected at ${timestamp}.`,
-      `Live load: ${sample.powerWatts.toFixed(1)} W.`,
-      `Web UI: ${config.publicWebUrl}`
-    ].join(" ");
+    const content = this.renderDiscordMessage(sample.recordedAt, sample.powerWatts);
 
-    await sendDiscordWebhook(config.discordWebhookUrl, content);
+    await sendDiscordWebhook(this.settings.discordWebhookUrl, content);
     this.db.markNotificationSent(event.id, sample.recordedAt);
-    this.db.recordNotification(sample.recordedAt, event.id, config.discordWebhookUrl, content);
+    this.db.recordNotification(sample.recordedAt, event.id, this.settings.discordWebhookUrl, content);
   }
 
   private serializeActivation(event: ActivationEventRecord) {
@@ -202,5 +245,51 @@ export class ShellyMonitorService {
       peakWatts: event.peakWatts,
       energyKilowattHours: wattMinutesToKilowattHours(event.energyWattMinutes)
     };
+  }
+
+  private async refreshDeviceMetadata() {
+    const [deviceInfo, settingsInfo] = await Promise.all([
+      this.client.getDevice(),
+      this.client.getSettings()
+    ]);
+
+    this.deviceInfo = deviceInfo;
+    this.settingsInfo = settingsInfo;
+  }
+
+  private startPolling() {
+    this.stop();
+    this.timer = setInterval(() => void this.pollOnce(), this.settings.pollIntervalSeconds * 1000);
+  }
+
+  private renderDiscordMessage(recordedAtIso?: string, liveLoadWatts?: number, settingsOverride?: MonitorSettings) {
+    const activeSettings = settingsOverride ?? this.settings;
+    const overview = this.getOverview();
+    const timestamp = new Date(recordedAtIso ?? new Date().toISOString()).toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short"
+    });
+    const values = {
+      "%timestamp%": timestamp,
+      "%live_load%": `${(liveLoadWatts ?? overview.currentPowerWatts).toFixed(1)} W`,
+      "%usage_today%": `${overview.todayEnergyKilowattHours.toFixed(3)} kWh`,
+      "%current_status%": overview.currentPowerWatts >= activeSettings.activationPowerThresholdWatts ? "Pump Active" : "Pump Idle",
+      "%last_activation%": overview.lastActivation?.startedAt
+        ? new Date(overview.lastActivation.startedAt).toLocaleString("en-US", {
+            dateStyle: "medium",
+            timeStyle: "short"
+          })
+        : "No activation recorded",
+      "%public_web_url%": activeSettings.publicWebUrl,
+      "%shelly_url%": activeSettings.shellyUrl,
+      "%quiet_window_hours%": String(activeSettings.quietWindowHours),
+      "%notification_cooldown_hours%": String(activeSettings.notificationCooldownHours),
+      "%device_name%": this.settingsInfo?.name ?? "Sump pump"
+    };
+
+    return DISCORD_TEMPLATE_VARIABLES.reduce(
+      (message, variable) => message.replaceAll(variable, values[variable]),
+      activeSettings.discordMessageTemplate
+    );
   }
 }

@@ -9,18 +9,100 @@ const toNumber = (value: string | undefined, fallback: number) => {
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(currentDir, "../../../");
 
-export const config = {
-  port: toNumber(process.env.PORT, 8787),
+export interface MonitorSettings {
+  shellyUrl: string;
+  pollIntervalSeconds: number;
+  activationPowerThresholdWatts: number;
+  significantPowerThresholdWatts: number;
+  notificationCooldownHours: number;
+  quietWindowHours: number;
+  publicWebUrl: string;
+  discordWebhookUrl: string;
+  discordMessageTemplate: string;
+}
+
+export const DISCORD_TEMPLATE_VARIABLES = [
+  "%timestamp%",
+  "%live_load%",
+  "%usage_today%",
+  "%current_status%",
+  "%last_activation%",
+  "%public_web_url%",
+  "%shelly_url%",
+  "%quiet_window_hours%",
+  "%notification_cooldown_hours%",
+  "%device_name%"
+] as const;
+
+export const defaultMonitorSettings: MonitorSettings = {
   shellyUrl: process.env.SHELLY_URL ?? "http://10.10.80.59",
-  dataDir: process.env.DATA_DIR ?? path.resolve(repoRoot, "data"),
   pollIntervalSeconds: toNumber(process.env.POLL_INTERVAL_SECONDS, 30),
   activationPowerThresholdWatts: toNumber(process.env.ACTIVATION_POWER_THRESHOLD_WATTS, 150),
   significantPowerThresholdWatts: toNumber(process.env.SIGNIFICANT_POWER_THRESHOLD_WATTS, 150),
   notificationCooldownHours: toNumber(process.env.NOTIFICATION_COOLDOWN_HOURS, 8),
   quietWindowHours: toNumber(process.env.QUIET_WINDOW_HOURS, 8),
   publicWebUrl: process.env.PUBLIC_WEB_URL ?? "http://localhost:8787",
-  discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL ?? ""
+  discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL ?? "",
+  discordMessageTemplate:
+    process.env.DISCORD_MESSAGE_TEMPLATE ??
+    [
+      "Sump pump activity detected at %timestamp%.",
+      "Live load: %live_load%.",
+      "Usage today: %usage_today%.",
+      "Status: %current_status%.",
+      "Web UI: %public_web_url%"
+    ].join(" ")
 };
 
-export const QUIET_WINDOW_MS = config.quietWindowHours * 60 * 60 * 1000;
-export const NOTIFICATION_COOLDOWN_MS = config.notificationCooldownHours * 60 * 60 * 1000;
+export const serverConfig = {
+  port: toNumber(process.env.PORT, 8787),
+  dataDir: process.env.DATA_DIR ?? path.resolve(repoRoot, "data")
+};
+
+export const parseMonitorSettings = (raw: Partial<Record<keyof MonitorSettings, unknown>>): MonitorSettings => ({
+  shellyUrl: typeof raw.shellyUrl === "string" && raw.shellyUrl.trim() ? raw.shellyUrl : defaultMonitorSettings.shellyUrl,
+  pollIntervalSeconds: toNumber(String(raw.pollIntervalSeconds ?? defaultMonitorSettings.pollIntervalSeconds), defaultMonitorSettings.pollIntervalSeconds),
+  activationPowerThresholdWatts: toNumber(
+    String(raw.activationPowerThresholdWatts ?? defaultMonitorSettings.activationPowerThresholdWatts),
+    defaultMonitorSettings.activationPowerThresholdWatts
+  ),
+  significantPowerThresholdWatts: toNumber(
+    String(raw.significantPowerThresholdWatts ?? defaultMonitorSettings.significantPowerThresholdWatts),
+    defaultMonitorSettings.significantPowerThresholdWatts
+  ),
+  notificationCooldownHours: toNumber(
+    String(raw.notificationCooldownHours ?? defaultMonitorSettings.notificationCooldownHours),
+    defaultMonitorSettings.notificationCooldownHours
+  ),
+  quietWindowHours: toNumber(
+    String(raw.quietWindowHours ?? defaultMonitorSettings.quietWindowHours),
+    defaultMonitorSettings.quietWindowHours
+  ),
+  publicWebUrl:
+    typeof raw.publicWebUrl === "string" && raw.publicWebUrl.trim()
+      ? raw.publicWebUrl
+      : defaultMonitorSettings.publicWebUrl,
+  discordWebhookUrl: typeof raw.discordWebhookUrl === "string" ? raw.discordWebhookUrl : defaultMonitorSettings.discordWebhookUrl,
+  discordMessageTemplate:
+    typeof raw.discordMessageTemplate === "string" && raw.discordMessageTemplate.trim()
+      ? raw.discordMessageTemplate
+      : defaultMonitorSettings.discordMessageTemplate
+});
+
+export const validateMonitorSettings = (settings: MonitorSettings) => {
+  if (!settings.shellyUrl.startsWith("http://") && !settings.shellyUrl.startsWith("https://")) {
+    throw new Error("Shelly URL must start with http:// or https://");
+  }
+
+  if (settings.pollIntervalSeconds < 5) {
+    throw new Error("Polling interval must be at least 5 seconds");
+  }
+
+  if (settings.activationPowerThresholdWatts < 0 || settings.significantPowerThresholdWatts < 0) {
+    throw new Error("Power thresholds must be zero or greater");
+  }
+
+  if (settings.notificationCooldownHours < 1 || settings.quietWindowHours < 1) {
+    throw new Error("Quiet window and cooldown must be at least 1 hour");
+  }
+};

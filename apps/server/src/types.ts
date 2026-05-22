@@ -67,3 +67,7 @@ export interface ActivationEventRecord {
   notificationSentAt: string | null;
 }
 
+export interface SettingsRow {
+  setting_key: string;
+  setting_value: string;
+}

@@ -1,15 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { config } from "./config.js";
-import type { ActivationEventRecord, PollSample } from "./types.js";
+import { defaultMonitorSettings, parseMonitorSettings, serverConfig, type MonitorSettings } from "./config.js";
+import type { ActivationEventRecord, PollSample, SettingsRow } from "./types.js";
 
 export class MonitorDatabase {
   readonly db: Database.Database;
 
   constructor() {
-    fs.mkdirSync(config.dataDir, { recursive: true });
-    const filePath = path.join(config.dataDir, "monitor.sqlite");
+    fs.mkdirSync(serverConfig.dataDir, { recursive: true });
+    const filePath = path.join(serverConfig.dataDir, "monitor.sqlite");
     this.db = new Database(filePath);
     this.db.pragma("journal_mode = WAL");
     this.initialize();
@@ -46,7 +46,55 @@ export class MonitorDatabase {
         webhook_url TEXT NOT NULL,
         payload TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS settings (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT NOT NULL
+      );
     `);
+
+    this.seedDefaultSettings();
+  }
+
+  private seedDefaultSettings() {
+    const insert = this.db.prepare(`
+      INSERT OR IGNORE INTO settings (setting_key, setting_value)
+      VALUES (?, ?)
+    `);
+
+    const transaction = this.db.transaction((settings: MonitorSettings) => {
+      for (const [key, value] of Object.entries(settings)) {
+        insert.run(key, String(value));
+      }
+    });
+
+    transaction(defaultMonitorSettings);
+  }
+
+  getSettings(): MonitorSettings {
+    const rows = this.db.prepare(`
+      SELECT setting_key, setting_value
+      FROM settings
+    `).all() as SettingsRow[];
+
+    const raw = Object.fromEntries(rows.map((row) => [row.setting_key, row.setting_value]));
+    return parseMonitorSettings(raw);
+  }
+
+  saveSettings(settings: MonitorSettings) {
+    const upsert = this.db.prepare(`
+      INSERT INTO settings (setting_key, setting_value)
+      VALUES (?, ?)
+      ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
+    `);
+
+    const transaction = this.db.transaction((nextSettings: MonitorSettings) => {
+      for (const [key, value] of Object.entries(nextSettings)) {
+        upsert.run(key, String(value));
+      }
+    });
+
+    transaction(settings);
   }
 
   getMostRecentSample(): PollSample | null {

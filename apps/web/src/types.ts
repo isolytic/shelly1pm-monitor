@@ -67,3 +67,22 @@ export interface ActivationRecord {
   energyKilowattHours: number;
   notificationSentAt: string | null;
 }
+
+export interface MonitorSettingsResponse {
+  shellyUrl: string;
+  pollIntervalSeconds: number;
+  activationPowerThresholdWatts: number;
+  significantPowerThresholdWatts: number;
+  notificationCooldownHours: number;
+  quietWindowHours: number;
+  publicWebUrl: string;
+  discordWebhookUrl: string;
+  discordMessageTemplate: string;
+  availableTemplateVariables: string[];
+  discordMessagePreview: string;
+}
+
+export interface TestWebhookResponse {
+  ok: boolean;
+  renderedMessage: string;
+}

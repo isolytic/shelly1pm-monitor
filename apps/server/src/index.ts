@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
-import { config } from "./config.js";
+import { serverConfig } from "./config.js";
 import { ShellyMonitorService } from "./monitor.js";
 
 const monitor = new ShellyMonitorService();
@@ -20,6 +20,31 @@ app.get("/api/health", (_req, res) => {
 
 app.get("/api/overview", (_req, res) => {
   res.json(monitor.getOverview());
+});
+
+app.get("/api/settings", (_req, res) => {
+  res.json(monitor.getSettings());
+});
+
+app.put("/api/settings", async (req, res) => {
+  try {
+    const settings = await monitor.updateSettings(req.body);
+    res.json(settings);
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to update settings"
+    });
+  }
+});
+
+app.post("/api/settings/test-webhook", async (_req, res) => {
+  try {
+    res.json(await monitor.testDiscordWebhook(_req.body));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to test webhook"
+    });
+  }
 });
 
 app.get("/api/chart", (req, res) => {
@@ -46,8 +71,8 @@ if (fs.existsSync(webDistPath)) {
 const start = async () => {
   await monitor.initialize();
 
-  app.listen(config.port, () => {
-    console.log(`Shelly monitor listening on http://localhost:${config.port}`);
+  app.listen(serverConfig.port, () => {
+    console.log(`Shelly monitor listening on http://localhost:${serverConfig.port}`);
   });
 };
 

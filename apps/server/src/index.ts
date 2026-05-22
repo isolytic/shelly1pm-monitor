@@ -22,6 +22,15 @@ app.get("/api/overview", (_req, res) => {
   res.json(monitor.getOverview());
 });
 
+app.get("/api/analytics", (_req, res) => {
+  res.json(monitor.getAnalytics());
+});
+
+app.get("/api/alerts", (req, res) => {
+  const limit = Number(req.query.limit ?? 20);
+  res.json(monitor.getRecentAlerts(Number.isFinite(limit) ? limit : 20));
+});
+
 app.get("/api/settings", (_req, res) => {
   res.json(monitor.getSettings());
 });
@@ -71,9 +80,69 @@ app.post("/api/database/import", express.raw({ type: "application/octet-stream",
   }
 });
 
+app.get("/api/annotations", (req, res) => {
+  const limit = Number(req.query.limit ?? 50);
+  res.json(monitor.getAnnotations(Number.isFinite(limit) ? limit : 50));
+});
+
+app.post("/api/annotations", (req, res) => {
+  try {
+    res.json(
+      monitor.createAnnotation({
+        activationEventId:
+          typeof req.body.activationEventId === "number" ? req.body.activationEventId : null,
+        notedAt: typeof req.body.notedAt === "string" ? req.body.notedAt : new Date().toISOString(),
+        category: String(req.body.category ?? "note"),
+        note: String(req.body.note ?? "")
+      })
+    );
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to create annotation"
+    });
+  }
+});
+
+app.put("/api/annotations/:id", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    res.json(
+      monitor.updateAnnotation(id, {
+        activationEventId:
+          typeof req.body.activationEventId === "number" ? req.body.activationEventId : null,
+        notedAt: typeof req.body.notedAt === "string" ? req.body.notedAt : new Date().toISOString(),
+        category: String(req.body.category ?? "note"),
+        note: String(req.body.note ?? "")
+      })
+    );
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to update annotation"
+    });
+  }
+});
+
+app.delete("/api/annotations/:id", (req, res) => {
+  try {
+    res.json(monitor.deleteAnnotation(Number(req.params.id)));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to delete annotation"
+    });
+  }
+});
+
 app.get("/api/chart", (req, res) => {
-  const rangeHours = Number(req.query.rangeHours ?? 24);
-  res.json(monitor.getChart(Number.isFinite(rangeHours) ? rangeHours : 24));
+  const endIso = typeof req.query.end === "string" ? req.query.end : new Date().toISOString();
+  const startIso =
+    typeof req.query.start === "string"
+      ? req.query.start
+      : new Date(new Date(endIso).getTime() - Number(req.query.rangeHours ?? 24) * 60 * 60 * 1000).toISOString();
+  const aggregation =
+    typeof req.query.aggregation === "string"
+      ? (req.query.aggregation as "raw" | "5m" | "15m" | "1h" | "1d" | "auto")
+      : "auto";
+  res.json(monitor.getChart(startIso, endIso, aggregation));
 });
 
 app.get("/api/activations", (req, res) => {

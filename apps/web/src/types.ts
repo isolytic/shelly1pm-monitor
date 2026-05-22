@@ -15,6 +15,7 @@ export interface OverviewResponse {
     endedAt: string | null;
     peakWatts: number;
     energyKilowattHours: number;
+    energyCost: number;
   } | null;
   lastActivation: {
     startedAt: string;
@@ -25,6 +26,7 @@ export interface OverviewResponse {
   thresholds: {
     activationPowerWatts: number;
     significantPowerWatts: number;
+    criticalPowerWatts: number;
   };
   costPerKilowattHour: number;
   health: {
@@ -46,19 +48,36 @@ export interface OverviewResponse {
     } | null;
     lastSuccessfulPollAt: string | null;
     lastPollError: string | null;
+    snapshot: {
+      lastSuccessfulPollAt: string | null;
+      lastPollError: string | null;
+      minutesSinceLastSuccessfulPoll: number | null;
+      isStale: boolean;
+      isDeviceUnreachable: boolean;
+      currentRssi: number | null;
+      rssiTrend: {
+        current: number | null;
+        average24h: number | null;
+        min24h: number | null;
+        max24h: number | null;
+      };
+    };
   };
 }
 
+export interface ChartPoint {
+  recordedAt: string;
+  averagePowerWatts: number;
+  maxPowerWatts: number;
+  energyKilowattHours: number;
+  energyCost: number;
+}
+
 export interface ChartResponse {
-  points: Array<{
-    recordedAt: string;
-    powerWatts: number;
-    energyKilowattHours: number;
-  }>;
-  hourlyEnergy: Array<{
-    hourBucket: string;
-    energyKilowattHours: number;
-  }>;
+  startIso: string;
+  endIso: string;
+  aggregation: "raw" | "5m" | "15m" | "1h" | "1d";
+  points: ChartPoint[];
 }
 
 export interface ActivationRecord {
@@ -76,9 +95,16 @@ export interface MonitorSettingsResponse {
   pollIntervalSeconds: number;
   activationPowerThresholdWatts: number;
   significantPowerThresholdWatts: number;
+  criticalPowerThresholdWatts: number;
   notificationCooldownHours: number;
+  criticalNotificationCooldownMinutes: number;
   quietWindowHours: number;
   costPerKilowattHour: number;
+  runsPerHourAlertThreshold: number;
+  longRunAlertMinutes: number;
+  noRunAlertHours: number;
+  stalePollingAlertMinutes: number;
+  deviceUnreachableAlertMinutes: number;
   publicWebUrl: string;
   discordWebhookUrl: string;
   discordMessageTemplate: string;
@@ -89,4 +115,36 @@ export interface MonitorSettingsResponse {
 export interface TestWebhookResponse {
   ok: boolean;
   renderedMessage: string;
+}
+
+export interface AnalyticsResponse {
+  averageRunDurationMinutes: number;
+  runsPerDay: number;
+  longestQuietMinutes: number;
+  abnormalCycles: Array<{
+    activationId: number;
+    startedAt: string;
+    endedAt: string | null;
+    reasons: string[];
+  }>;
+}
+
+export interface AlertRecord {
+  id: number;
+  sentAt: string;
+  notificationType: string;
+  severity: "info" | "warning" | "critical";
+  alertKey: string | null;
+  activationEventId: number | null;
+  payload: string;
+}
+
+export interface AnnotationRecord {
+  id: number;
+  activationEventId: number | null;
+  notedAt: string;
+  category: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
 }

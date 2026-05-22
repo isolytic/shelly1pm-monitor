@@ -92,6 +92,11 @@ a {
   gap: 14px;
 }
 
+.topbar-health {
+  display: flex;
+  align-items: center;
+}
+
 .topbar h2,
 .drawer-topbar h2,
 .sidebar-header h1,
@@ -128,6 +133,11 @@ a {
   height: 42px;
   color: var(--text);
   background: rgba(255, 255, 255, 0.02);
+}
+
+.icon-button.compact {
+  width: 34px;
+  height: 34px;
 }
 
 .primary-button {
@@ -251,7 +261,8 @@ a {
 }
 
 .device-chip,
-.status-pill {
+.status-pill,
+.health-chip {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -262,6 +273,26 @@ a {
 .device-chip {
   background: rgba(56, 189, 248, 0.12);
   color: #7dd3fc;
+}
+
+.health-chip {
+  border: 1px solid var(--line);
+  font-size: 0.84rem;
+}
+
+.health-chip.healthy {
+  background: rgba(52, 211, 153, 0.12);
+  color: #86efac;
+}
+
+.health-chip.warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fcd34d;
+}
+
+.health-chip.critical {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
 }
 
 .hero-panel,
@@ -303,6 +334,10 @@ a {
   gap: 14px;
 }
 
+.hero-stats.wide {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 .hero-stats article {
   padding: 18px;
 }
@@ -334,6 +369,56 @@ a {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) 360px;
   gap: 20px;
+}
+
+.controls-panel,
+.abnormal-panel,
+.alert-panel {
+  padding: 20px;
+}
+
+.controls-row,
+.preset-group,
+.custom-range-group,
+.control-select {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.controls-row {
+  justify-content: space-between;
+}
+
+.control-select,
+.custom-range-group label,
+.settings-grid select,
+.annotation-grid select {
+  color: var(--text);
+}
+
+.control-select {
+  flex-direction: column;
+  min-width: 160px;
+}
+
+.control-select select,
+.custom-range-group input,
+.settings-grid select,
+.timeline-row button {
+  width: 100%;
+  color: var(--text);
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.custom-range-group label {
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
 }
 
 .chart-panel,
@@ -430,13 +515,87 @@ a {
 }
 
 .settings-grid input,
-.settings-grid textarea {
+.settings-grid textarea,
+.settings-grid select,
+.annotation-grid textarea {
   width: 100%;
   color: var(--text);
   background: var(--panel-strong);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 12px 14px;
+}
+
+.alert-list,
+.annotation-feed {
+  display: grid;
+  gap: 12px;
+}
+
+.alert-item,
+.abnormal-card,
+.annotation-card,
+.annotation-editor {
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.alert-item {
+  display: grid;
+  gap: 10px;
+}
+
+.alert-item p,
+.annotation-card p,
+.abnormal-card p,
+.empty-state {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.alert-item strong,
+.annotation-card strong,
+.abnormal-card strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.alert-item.warning {
+  border-color: rgba(245, 158, 11, 0.34);
+}
+
+.alert-item.critical {
+  border-color: rgba(248, 113, 113, 0.34);
+}
+
+.abnormal-grid,
+.annotation-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.annotation-layout {
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  margin-top: 22px;
+}
+
+.annotation-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.annotation-card-head strong {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.empty-state {
+  padding: 8px 2px 2px;
 }
 
 .template-panel {
@@ -488,7 +647,9 @@ a {
   .hero-stats.compact,
   .chart-layout,
   .bottom-layout,
-  .settings-grid {
+  .settings-grid,
+  .annotation-layout,
+  .hero-stats.wide {
     grid-template-columns: 1fr;
   }
 }
@@ -504,6 +665,12 @@ a {
 
   .drawer-actions {
     flex-direction: column;
+  }
+
+  .controls-row,
+  .preset-group,
+  .custom-range-group {
+    align-items: stretch;
   }
 
   .timeline-row {

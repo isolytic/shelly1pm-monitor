@@ -1,6 +1,6 @@
 # shelly1pm-monitor
 
-Web-based monitoring for a Shelly 1PM attached to a sump pump. The app polls the Shelly on your LAN, stores time-series energy data in SQLite, graphs the last 24 hours of usage, records activation events, and posts a single Discord webhook alert when the pump starts after at least 8 hours of quiet time.
+Web-based monitoring for a Shelly 1PM attached to a sump pump. The app polls the Shelly on your LAN, stores time-series energy data in SQLite, graphs usage across multiple time ranges, records activation events, tracks health and RSSI trends, supports annotations, and posts Discord alerts for both routine and critical conditions.
 
 ## What it does
 
@@ -8,8 +8,10 @@ Web-based monitoring for a Shelly 1PM attached to a sump pump. The app polls the
 - Stores historical wattage samples and incremental energy usage in SQLite
 - Tracks cost using a configurable `cost per kWh` setting
 - Detects sump pump activations based on a configurable wattage threshold
-- Suppresses Discord notifications so only one alert can be sent every 8 hours
-- Serves a responsive React dashboard with live status, dark-mode graphs, zoom/pan controls, and activation history
+- Adds pump analytics including average run duration, runs per day, longest quiet period, and abnormal-cycle detection
+- Supports alert rules for first activation after a quiet window, critical power, too many runs in an hour, long runs, stale polling, no activity, and device unreachable states
+- Uses a separate critical notification threshold and cooldown so urgent alerts can be sent more often
+- Serves a responsive React dashboard with live status, dark-mode graphs, zoom/pan controls, multi-range history, annotations, alert history, and activation history
 - Stores editable runtime settings in SQLite so the monitored Shelly URL, thresholds, webhook, and Discord message template can be changed from the web UI
 - Supports database export/import so a tested local SQLite database can be moved into production
 - Publishes a production image to GHCR for `docker compose` deployments
@@ -26,11 +28,19 @@ Copy `.env.example` to `.env` and adjust values as needed.
 | `POLL_INTERVAL_SECONDS` | `30` | Poll cadence |
 | `ACTIVATION_POWER_THRESHOLD_WATTS` | `150` | Pump-on threshold |
 | `SIGNIFICANT_POWER_THRESHOLD_WATTS` | `150` | Quiet-window threshold |
-| `QUIET_WINDOW_HOURS` | `8` | How long the pump must stay quiet before a new activation can alert |
-| `COST_PER_KWH` | `0.15` | Electricity rate used for cost calculations |
+| `CRITICAL_POWER_THRESHOLD_WATTS` | `600` | Critical wattage threshold for urgent Discord alerts |
 | `NOTIFICATION_COOLDOWN_HOURS` | `8` | Minimum gap between Discord webhook messages |
+| `CRITICAL_NOTIFICATION_COOLDOWN_MINUTES` | `30` | Minimum gap between critical Discord alerts |
+| `QUIET_WINDOW_HOURS` | `8` | How long the pump must stay quiet before a new activation can alert |
+| `RUNS_PER_HOUR_ALERT_THRESHOLD` | `6` | Alert when this many runs occur inside 1 hour |
+| `LONG_RUN_ALERT_MINUTES` | `15` | Alert when a pump cycle runs longer than this |
+| `NO_RUN_ALERT_HOURS` | `24` | Alert when no completed run has happened for this long |
+| `STALE_POLLING_ALERT_MINUTES` | `10` | Alert when polling has gone stale |
+| `DEVICE_UNREACHABLE_ALERT_MINUTES` | `10` | Alert when the Shelly appears unreachable |
+| `COST_PER_KWH` | `0.15` | Electricity rate used for cost calculations |
 | `PUBLIC_WEB_URL` | `http://localhost:8787` | URL included in Discord alerts |
 | `DISCORD_WEBHOOK_URL` | empty | Discord webhook endpoint |
+| `DISCORD_MESSAGE_TEMPLATE` | alert template | Customizable Discord template with variables |
 
 ## Local development
 
@@ -63,13 +73,35 @@ For the first production deployment, publish the image from GitHub Actions or bu
 
 ## Discord behavior
 
-An alert is sent only when all of the following are true:
+The app can send multiple alert types, including:
 
-1. Current wattage is at or above `ACTIVATION_POWER_THRESHOLD_WATTS`
-2. No sample in the previous `QUIET_WINDOW_HOURS` exceeded `SIGNIFICANT_POWER_THRESHOLD_WATTS`
-3. No Discord notification has been sent in the previous `NOTIFICATION_COOLDOWN_HOURS`
+- First activation after a quiet window
+- Critical power load
+- Frequent runs in the last hour
+- Unusually long runs
+- No runs for a suspiciously long period
+- Stale polling
+- Shelly device unreachable
 
-The webhook message includes the activation time, live wattage, and the configured `PUBLIC_WEB_URL`.
+Routine alerts follow `NOTIFICATION_COOLDOWN_HOURS`. Critical alerts use `CRITICAL_NOTIFICATION_COOLDOWN_MINUTES`, so they can be delivered more frequently without spamming the standard quiet-window notification path.
+
+The Discord message template supports variables such as:
+
+- `%severity%`
+- `%alert_type%`
+- `%alert_details%`
+- `%live_load%`
+- `%usage_today%`
+- `%usage_cost_today%`
+- `%cost_per_kwh%`
+- `%timestamp%`
+- `%current_status%`
+- `%last_activation%`
+- `%public_web_url%`
+- `%shelly_url%`
+- `%quiet_window_hours%`
+- `%notification_cooldown_hours%`
+- `%device_name%`
 
 ## Web UI settings
 
@@ -77,12 +109,21 @@ The app includes a settings drawer for:
 
 - Shelly IP/URL
 - Poll interval
-- Activation and significant-usage thresholds
-- Quiet-window and notification cooldown values
+- Activation, significant-usage, and critical thresholds
+- Quiet-window, normal cooldown, and critical cooldown values
+- Alert rule thresholds for frequent runs, long runs, no-run periods, stale polling, and unreachable-device detection
 - Public web URL
 - Cost per kWh
 - Discord webhook URL
-- Custom Discord message templates with variables such as `%live_load%`, `%usage_today%`, `%timestamp%`, and `%public_web_url%`
+- Custom Discord message templates with alert-specific variables
+
+The dashboard also includes:
+
+- Range presets for `24h`, `7d`, `30d`, and custom windows
+- Aggregation modes for dense history views
+- Pump run analytics and abnormal-cycle summaries
+- Shelly health details including firmware and RSSI trends
+- Timeline annotations for maintenance, storms, float switch changes, inspections, and pump issues
 
 The settings drawer also includes a test-webhook button that sends the rendered message immediately.
 It also includes database export/import controls for migrating the SQLite file between environments.

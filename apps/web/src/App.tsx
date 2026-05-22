@@ -5,6 +5,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -12,6 +13,10 @@ import {
 } from "recharts";
 import type {
   ActivationRecord,
+  AlertRecord,
+  AnalyticsResponse,
+  AnnotationRecord,
+  ChartPoint,
   ChartResponse,
   MonitorSettingsResponse,
   OverviewResponse,
@@ -20,15 +25,22 @@ import type {
 
 const REFRESH_MS = 30_000;
 const MIN_WINDOW_RATIO = 0.08;
+const fileInputId = "database-import-input";
+const rangePresets = [
+  { id: "24h", label: "24h", hours: 24 },
+  { id: "7d", label: "7d", hours: 24 * 7 },
+  { id: "30d", label: "30d", hours: 24 * 30 },
+  { id: "custom", label: "Custom", hours: 0 }
+] as const;
+
+type RangePreset = (typeof rangePresets)[number]["id"];
+type AggregationMode = "auto" | "raw" | "5m" | "15m" | "1h" | "1d";
 
 const formatNumber = (value: number, digits = 1) =>
   new Intl.NumberFormat("en-US", {
     maximumFractionDigits: digits,
     minimumFractionDigits: digits
   }).format(value);
-
-const tooltipNumber = (value: unknown, digits = 1) =>
-  `${formatNumber(typeof value === "number" ? value : Number(value ?? 0), digits)}${digits === 3 ? " kWh" : " W"}`;
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -51,28 +63,47 @@ const formatDateTime = (value: string | null) => {
 
 const formatShortTime = (value: string) =>
   new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit"
   }).format(new Date(value));
 
+const formatDurationFromMinutes = (minutes: number) => {
+  const rounded = Math.max(1, Math.round(minutes));
+  const hours = Math.floor(rounded / 60);
+  const remainingMinutes = rounded % 60;
+  return hours === 0 ? `${remainingMinutes}m` : `${hours}h ${remainingMinutes}m`;
+};
+
 const formatDuration = (startedAt: string, endedAt: string | null) => {
   const end = endedAt ? new Date(endedAt).getTime() : Date.now();
-  const diffMinutes = Math.max(1, Math.round((end - new Date(startedAt).getTime()) / 60000));
-  const hours = Math.floor(diffMinutes / 60);
-  const minutes = diffMinutes % 60;
-  return hours === 0 ? `${minutes}m` : `${hours}h ${minutes}m`;
+  return formatDurationFromMinutes((end - new Date(startedAt).getTime()) / 60000);
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const toNumber = (value: unknown) => (typeof value === "number" ? value : Number(value ?? 0));
+
+const localInputValue = (iso: string | null) => {
+  const date = iso ? new Date(iso) : new Date();
+  const adjusted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return adjusted.toISOString().slice(0, 16);
+};
+
+const toIsoFromLocalInput = (value: string) => new Date(value).toISOString();
 
 const buildPreviewMessage = (settings: MonitorSettingsResponse, overview: OverviewResponse) => {
   const replacements: Record<string, string> = {
     "%timestamp%": formatDateTime(overview.lastSampleAt),
+    "%severity%": "info",
+    "%alert_type%": "Sump pump update",
+    "%alert_details%": "Preview generated from the current settings form.",
     "%live_load%": `${formatNumber(overview.currentPowerWatts)} W`,
     "%usage_today%": `${formatNumber(overview.todayEnergyKilowattHours, 3)} kWh`,
     "%usage_cost_today%": formatCurrency(overview.todayEnergyCost),
     "%cost_per_kwh%": formatCurrency(settings.costPerKilowattHour),
-    "%current_status%": overview.currentPowerWatts >= settings.activationPowerThresholdWatts ? "Pump Active" : "Pump Idle",
+    "%current_status%":
+      overview.currentPowerWatts >= settings.activationPowerThresholdWatts ? "Pump Active" : "Pump Idle",
     "%last_activation%": formatDateTime(overview.lastActivation?.startedAt ?? null),
     "%public_web_url%": settings.publicWebUrl,
     "%shelly_url%": settings.shellyUrl,
@@ -87,7 +118,12 @@ const buildPreviewMessage = (settings: MonitorSettingsResponse, overview: Overvi
   );
 };
 
-const fileInputId = "database-import-input";
+const defaultAnnotationForm = () => ({
+  activationEventId: "",
+  notedAt: localInputValue(null),
+  category: "maintenance",
+  note: ""
+});
 
 function App() {
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
@@ -95,39 +131,86 @@ function App() {
   const [activations, setActivations] = useState<ActivationRecord[]>([]);
   const [settings, setSettings] = useState<MonitorSettingsResponse | null>(null);
   const [draftSettings, setDraftSettings] = useState<MonitorSettingsResponse | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<string | null>(null);
   const [testState, setTestState] = useState<string | null>(null);
+  const [annotationState, setAnnotationState] = useState<string | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [rangePreset, setRangePreset] = useState<RangePreset>("24h");
+  const [aggregation, setAggregation] = useState<AggregationMode>("auto");
+  const [customRange, setCustomRange] = useState(() => {
+    const now = new Date();
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return {
+      start: localInputValue(start.toISOString()),
+      end: localInputValue(now.toISOString())
+    };
+  });
   const [windowRange, setWindowRange] = useState({ start: 0, end: 1 });
+  const [annotationForm, setAnnotationForm] = useState(defaultAnnotationForm);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragStateRef = useRef<{ x: number; start: number; end: number } | null>(null);
+
+  const chartRange = useMemo(() => {
+    if (rangePreset === "custom") {
+      return {
+        startIso: toIsoFromLocalInput(customRange.start),
+        endIso: toIsoFromLocalInput(customRange.end)
+      };
+    }
+
+    const preset = rangePresets.find((entry) => entry.id === rangePreset)!;
+    const endIso = new Date().toISOString();
+    const startIso = new Date(Date.now() - preset.hours * 60 * 60 * 1000).toISOString();
+    return { startIso, endIso };
+  }, [customRange, rangePreset]);
 
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
       try {
-        const [overviewRes, chartRes, activationsRes, settingsRes] = await Promise.all([
-          fetch("/api/overview"),
-          fetch("/api/chart?rangeHours=24"),
-          fetch("/api/activations?limit=12"),
-          fetch("/api/settings")
-        ]);
+        const [overviewRes, chartRes, activationsRes, settingsRes, analyticsRes, alertsRes, annotationsRes] =
+          await Promise.all([
+            fetch("/api/overview"),
+            fetch(
+              `/api/chart?start=${encodeURIComponent(chartRange.startIso)}&end=${encodeURIComponent(chartRange.endIso)}&aggregation=${aggregation}`
+            ),
+            fetch("/api/activations?limit=20"),
+            fetch("/api/settings"),
+            fetch("/api/analytics"),
+            fetch("/api/alerts?limit=12"),
+            fetch("/api/annotations?limit=30")
+          ]);
 
-        if (!overviewRes.ok || !chartRes.ok || !activationsRes.ok || !settingsRes.ok) {
+        if (
+          !overviewRes.ok ||
+          !chartRes.ok ||
+          !activationsRes.ok ||
+          !settingsRes.ok ||
+          !analyticsRes.ok ||
+          !alertsRes.ok ||
+          !annotationsRes.ok
+        ) {
           throw new Error("Unable to load monitor data");
         }
 
-        const [overviewJson, chartJson, activationsJson, settingsJson] = await Promise.all([
-          overviewRes.json() as Promise<OverviewResponse>,
-          chartRes.json() as Promise<ChartResponse>,
-          activationsRes.json() as Promise<ActivationRecord[]>,
-          settingsRes.json() as Promise<MonitorSettingsResponse>
-        ]);
+        const [overviewJson, chartJson, activationsJson, settingsJson, analyticsJson, alertsJson, annotationsJson] =
+          await Promise.all([
+            overviewRes.json() as Promise<OverviewResponse>,
+            chartRes.json() as Promise<ChartResponse>,
+            activationsRes.json() as Promise<ActivationRecord[]>,
+            settingsRes.json() as Promise<MonitorSettingsResponse>,
+            analyticsRes.json() as Promise<AnalyticsResponse>,
+            alertsRes.json() as Promise<AlertRecord[]>,
+            annotationsRes.json() as Promise<AnnotationRecord[]>
+          ]);
 
         if (cancelled) {
           return;
@@ -139,7 +222,11 @@ function App() {
           setActivations(activationsJson);
           setSettings(settingsJson);
           setDraftSettings((previous) => previous ?? settingsJson);
+          setAnalytics(analyticsJson);
+          setAlerts(alertsJson);
+          setAnnotations(annotationsJson);
           setError(null);
+          setWindowRange({ start: 0, end: 1 });
         });
       } catch (loadError) {
         if (cancelled) {
@@ -161,7 +248,7 @@ function App() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [aggregation, chartRange.endIso, chartRange.startIso]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -233,43 +320,40 @@ function App() {
   const visibleData = useMemo(() => {
     if (!chart) {
       return {
-        points: [],
-        hourlyEnergy: [],
-        visibleStartLabel: "",
-        visibleEndLabel: ""
+        points: [] as ChartPoint[],
+        startLabel: "",
+        endLabel: "",
+        totalEnergyKwh: 0,
+        totalCost: 0
       };
     }
 
     const pointCount = chart.points.length;
     if (pointCount <= 2) {
+      const totalEnergyKwh = chart.points.reduce((sum, point) => sum + point.energyKilowattHours, 0);
+      const totalCost = chart.points.reduce((sum, point) => sum + point.energyCost, 0);
       return {
         points: chart.points,
-        hourlyEnergy: chart.hourlyEnergy,
-        visibleStartLabel: chart.points[0]?.recordedAt ?? "",
-        visibleEndLabel: chart.points.at(-1)?.recordedAt ?? ""
+        startLabel: chart.points[0]?.recordedAt ?? chart.startIso,
+        endLabel: chart.points.at(-1)?.recordedAt ?? chart.endIso,
+        totalEnergyKwh,
+        totalCost
       };
     }
 
     const startIndex = clamp(Math.floor(windowRange.start * (pointCount - 1)), 0, pointCount - 2);
     const endIndex = clamp(Math.ceil(windowRange.end * (pointCount - 1)), startIndex + 1, pointCount - 1);
     const points = chart.points.slice(startIndex, endIndex + 1);
-    const visibleStart = points[0]?.recordedAt ?? chart.points[0].recordedAt;
-    const visibleEnd = points.at(-1)?.recordedAt ?? chart.points.at(-1)?.recordedAt ?? visibleStart;
-    const hourlyEnergy = chart.hourlyEnergy.filter((row) => {
-      const hourTime = new Date(row.hourBucket).getTime();
-      return hourTime >= new Date(visibleStart).getTime() && hourTime <= new Date(visibleEnd).getTime() + 3600000;
-    });
-
     return {
       points,
-      hourlyEnergy: hourlyEnergy.length ? hourlyEnergy : chart.hourlyEnergy,
-      visibleStartLabel: visibleStart,
-      visibleEndLabel: visibleEnd
+      startLabel: points[0]?.recordedAt ?? chart.startIso,
+      endLabel: points.at(-1)?.recordedAt ?? chart.endIso,
+      totalEnergyKwh: points.reduce((sum, point) => sum + point.energyKilowattHours, 0),
+      totalCost: points.reduce((sum, point) => sum + point.energyCost, 0)
     };
   }, [chart, windowRange]);
 
   const deferredVisibleData = useDeferredValue(visibleData);
-
   const hasUnsavedSettings =
     settings !== null && draftSettings !== null && JSON.stringify(settings) !== JSON.stringify(draftSettings);
 
@@ -277,13 +361,12 @@ function App() {
     return <div className="app-shell status-screen">Loading monitor data…</div>;
   }
 
-  if (error || !overview || !chart || !settings || !draftSettings) {
+  if (!overview || !chart || !settings || !draftSettings || !analytics || error) {
     return <div className="app-shell status-screen">Dashboard unavailable: {error ?? "missing data"}</div>;
   }
 
   const previewMessage = buildPreviewMessage(draftSettings, overview);
   const statusTone = overview.currentPowerWatts >= overview.thresholds.activationPowerWatts ? "active" : "idle";
-  const visibleEnergyCost = deferredVisibleData.hourlyEnergy.reduce((sum, row) => sum + row.energyKilowattHours * settings.costPerKilowattHour, 0);
 
   const updateDraftSetting = <K extends keyof MonitorSettingsResponse>(key: K, value: MonitorSettingsResponse[K]) => {
     setDraftSettings((current) => (current ? { ...current, [key]: value } : current));
@@ -298,16 +381,20 @@ function App() {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          shellyUrl: draftSettings.shellyUrl,
+          ...draftSettings,
           pollIntervalSeconds: Number(draftSettings.pollIntervalSeconds),
           activationPowerThresholdWatts: Number(draftSettings.activationPowerThresholdWatts),
           significantPowerThresholdWatts: Number(draftSettings.significantPowerThresholdWatts),
+          criticalPowerThresholdWatts: Number(draftSettings.criticalPowerThresholdWatts),
           notificationCooldownHours: Number(draftSettings.notificationCooldownHours),
+          criticalNotificationCooldownMinutes: Number(draftSettings.criticalNotificationCooldownMinutes),
           quietWindowHours: Number(draftSettings.quietWindowHours),
           costPerKilowattHour: Number(draftSettings.costPerKilowattHour),
-          publicWebUrl: draftSettings.publicWebUrl,
-          discordWebhookUrl: draftSettings.discordWebhookUrl,
-          discordMessageTemplate: draftSettings.discordMessageTemplate
+          runsPerHourAlertThreshold: Number(draftSettings.runsPerHourAlertThreshold),
+          longRunAlertMinutes: Number(draftSettings.longRunAlertMinutes),
+          noRunAlertHours: Number(draftSettings.noRunAlertHours),
+          stalePollingAlertMinutes: Number(draftSettings.stalePollingAlertMinutes),
+          deviceUnreachableAlertMinutes: Number(draftSettings.deviceUnreachableAlertMinutes)
         })
       });
 
@@ -330,18 +417,7 @@ function App() {
       const response = await fetch("/api/settings/test-webhook", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          shellyUrl: draftSettings.shellyUrl,
-          pollIntervalSeconds: Number(draftSettings.pollIntervalSeconds),
-          activationPowerThresholdWatts: Number(draftSettings.activationPowerThresholdWatts),
-          significantPowerThresholdWatts: Number(draftSettings.significantPowerThresholdWatts),
-          notificationCooldownHours: Number(draftSettings.notificationCooldownHours),
-          quietWindowHours: Number(draftSettings.quietWindowHours),
-          costPerKilowattHour: Number(draftSettings.costPerKilowattHour),
-          publicWebUrl: draftSettings.publicWebUrl,
-          discordWebhookUrl: draftSettings.discordWebhookUrl,
-          discordMessageTemplate: draftSettings.discordMessageTemplate
-        })
+        body: JSON.stringify(draftSettings)
       });
       const payload = (await response.json()) as TestWebhookResponse | { error: string };
       if (!response.ok || "error" in payload) {
@@ -380,7 +456,7 @@ function App() {
         headers: { "content-type": "application/octet-stream" },
         body: buffer
       });
-      const payload = (await response.json()) as { ok?: boolean; settings?: MonitorSettingsResponse; error?: string };
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || payload.error) {
         throw new Error(payload.error ?? "Unable to import database");
       }
@@ -395,12 +471,50 @@ function App() {
     }
   };
 
+  const handleCreateAnnotation = async () => {
+    try {
+      setAnnotationState("Saving annotation…");
+      const response = await fetch("/api/annotations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          activationEventId: annotationForm.activationEventId ? Number(annotationForm.activationEventId) : null,
+          notedAt: toIsoFromLocalInput(annotationForm.notedAt),
+          category: annotationForm.category,
+          note: annotationForm.note
+        })
+      });
+      const payload = (await response.json()) as AnnotationRecord | { error: string };
+      if (!response.ok || "error" in payload) {
+        throw new Error("error" in payload ? payload.error : "Unable to save annotation");
+      }
+
+      setAnnotations((current) => [payload, ...current].slice(0, 30));
+      setAnnotationForm(defaultAnnotationForm());
+      setAnnotationState("Annotation saved.");
+    } catch (annotationError) {
+      setAnnotationState(annotationError instanceof Error ? annotationError.message : "Unable to save annotation");
+    }
+  };
+
+  const handleDeleteAnnotation = async (id: number) => {
+    try {
+      await fetch(`/api/annotations/${id}`, { method: "DELETE" });
+      setAnnotations((current) => current.filter((annotation) => annotation.id !== id));
+    } catch {
+      setAnnotationState("Unable to delete annotation");
+    }
+  };
+
   return (
     <div className="app-shell dark-shell">
-      <div className={`drawer-backdrop ${isNavOpen || isSettingsOpen ? "open" : ""}`} onClick={() => {
-        setIsNavOpen(false);
-        setIsSettingsOpen(false);
-      }} />
+      <div
+        className={`drawer-backdrop ${isNavOpen || isSettingsOpen ? "open" : ""}`}
+        onClick={() => {
+          setIsNavOpen(false);
+          setIsSettingsOpen(false);
+        }}
+      />
 
       <aside className={`sidebar-drawer ${isNavOpen ? "open" : ""}`}>
         <div className="sidebar-header">
@@ -410,12 +524,16 @@ function App() {
         <nav className="nav-list">
           <a href="#overview" onClick={() => setIsNavOpen(false)}>Overview</a>
           <a href="#activity" onClick={() => setIsNavOpen(false)}>Activity</a>
-          <a href="#notifications" onClick={() => setIsNavOpen(false)}>Notifications</a>
-          <a href="#device" onClick={() => setIsNavOpen(false)}>Device</a>
-          <button className="drawer-nav-button" onClick={() => {
-            setIsNavOpen(false);
-            setIsSettingsOpen(true);
-          }} type="button">
+          <a href="#analytics" onClick={() => setIsNavOpen(false)}>Analytics</a>
+          <a href="#timeline" onClick={() => setIsNavOpen(false)}>Timeline</a>
+          <button
+            className="drawer-nav-button"
+            onClick={() => {
+              setIsNavOpen(false);
+              setIsSettingsOpen(true);
+            }}
+            type="button"
+          >
             Settings
           </button>
         </nav>
@@ -449,24 +567,52 @@ function App() {
             <input type="number" min="5" value={draftSettings.pollIntervalSeconds} onChange={(event) => updateDraftSetting("pollIntervalSeconds", Number(event.target.value))} />
           </label>
           <label>
+            <span>Cost per kWh (USD)</span>
+            <input type="number" min="0" step="0.01" value={draftSettings.costPerKilowattHour} onChange={(event) => updateDraftSetting("costPerKilowattHour", Number(event.target.value))} />
+          </label>
+          <label>
             <span>Activation threshold (W)</span>
             <input type="number" min="0" value={draftSettings.activationPowerThresholdWatts} onChange={(event) => updateDraftSetting("activationPowerThresholdWatts", Number(event.target.value))} />
+          </label>
+          <label>
+            <span>Critical threshold (W)</span>
+            <input type="number" min="0" value={draftSettings.criticalPowerThresholdWatts} onChange={(event) => updateDraftSetting("criticalPowerThresholdWatts", Number(event.target.value))} />
           </label>
           <label>
             <span>Significant usage threshold (W)</span>
             <input type="number" min="0" value={draftSettings.significantPowerThresholdWatts} onChange={(event) => updateDraftSetting("significantPowerThresholdWatts", Number(event.target.value))} />
           </label>
           <label>
+            <span>Runs per hour alert</span>
+            <input type="number" min="1" value={draftSettings.runsPerHourAlertThreshold} onChange={(event) => updateDraftSetting("runsPerHourAlertThreshold", Number(event.target.value))} />
+          </label>
+          <label>
+            <span>Long run alert (minutes)</span>
+            <input type="number" min="1" value={draftSettings.longRunAlertMinutes} onChange={(event) => updateDraftSetting("longRunAlertMinutes", Number(event.target.value))} />
+          </label>
+          <label>
+            <span>No run alert (hours)</span>
+            <input type="number" min="1" value={draftSettings.noRunAlertHours} onChange={(event) => updateDraftSetting("noRunAlertHours", Number(event.target.value))} />
+          </label>
+          <label>
             <span>Quiet window (hours)</span>
             <input type="number" min="1" value={draftSettings.quietWindowHours} onChange={(event) => updateDraftSetting("quietWindowHours", Number(event.target.value))} />
           </label>
           <label>
-            <span>Cost per kWh (USD)</span>
-            <input type="number" min="0" step="0.01" value={draftSettings.costPerKilowattHour} onChange={(event) => updateDraftSetting("costPerKilowattHour", Number(event.target.value))} />
-          </label>
-          <label>
             <span>Notification cooldown (hours)</span>
             <input type="number" min="1" value={draftSettings.notificationCooldownHours} onChange={(event) => updateDraftSetting("notificationCooldownHours", Number(event.target.value))} />
+          </label>
+          <label>
+            <span>Critical cooldown (minutes)</span>
+            <input type="number" min="1" value={draftSettings.criticalNotificationCooldownMinutes} onChange={(event) => updateDraftSetting("criticalNotificationCooldownMinutes", Number(event.target.value))} />
+          </label>
+          <label>
+            <span>Stale polling alert (minutes)</span>
+            <input type="number" min="1" value={draftSettings.stalePollingAlertMinutes} onChange={(event) => updateDraftSetting("stalePollingAlertMinutes", Number(event.target.value))} />
+          </label>
+          <label>
+            <span>Unreachable alert (minutes)</span>
+            <input type="number" min="1" value={draftSettings.deviceUnreachableAlertMinutes} onChange={(event) => updateDraftSetting("deviceUnreachableAlertMinutes", Number(event.target.value))} />
           </label>
           <label className="full-width">
             <span>Discord webhook URL</span>
@@ -474,11 +620,7 @@ function App() {
           </label>
           <label className="full-width">
             <span>Discord message template</span>
-            <textarea
-              rows={5}
-              value={draftSettings.discordMessageTemplate}
-              onChange={(event) => updateDraftSetting("discordMessageTemplate", event.target.value)}
-            />
+            <textarea rows={6} value={draftSettings.discordMessageTemplate} onChange={(event) => updateDraftSetting("discordMessageTemplate", event.target.value)} />
           </label>
         </div>
 
@@ -511,6 +653,15 @@ function App() {
               <h2>Energy Monitor</h2>
             </div>
           </div>
+          <div className="topbar-health">
+            <span className={`health-chip ${overview.health.snapshot.isDeviceUnreachable ? "critical" : overview.health.snapshot.isStale ? "warning" : "healthy"}`}>
+              {overview.health.snapshot.isDeviceUnreachable
+                ? "Device unreachable"
+                : overview.health.snapshot.isStale
+                  ? "Polling stale"
+                  : "Healthy"}
+            </span>
+          </div>
         </header>
 
         <section className="hero-panel compact-hero" id="overview">
@@ -518,7 +669,7 @@ function App() {
             <span className="status-dot" />
             {statusTone === "active" ? "Pump Active" : "Pump Idle"}
           </div>
-          <div className="hero-stats compact">
+          <div className="hero-stats compact wide">
             <article>
               <span>Live load</span>
               <strong>{formatNumber(overview.currentPowerWatts)} W</strong>
@@ -529,35 +680,78 @@ function App() {
               <small>{formatCurrency(overview.todayEnergyCost)}</small>
             </article>
             <article>
-              <span>Last activation</span>
-              <strong>{formatDateTime(overview.lastActivation?.startedAt ?? null)}</strong>
+              <span>Average run</span>
+              <strong>{formatDurationFromMinutes(analytics.averageRunDurationMinutes)}</strong>
             </article>
             <article>
-              <span>Cost rate</span>
-              <strong>{formatCurrency(settings.costPerKilowattHour)}</strong>
-              <small>per kWh</small>
+              <span>Runs per day</span>
+              <strong>{formatNumber(analytics.runsPerDay, 2)}</strong>
+            </article>
+            <article>
+              <span>Longest quiet</span>
+              <strong>{formatDurationFromMinutes(analytics.longestQuietMinutes)}</strong>
+            </article>
+            <article>
+              <span>RSSI</span>
+              <strong>{overview.health.snapshot.currentRssi ?? "N/A"} dBm</strong>
             </article>
           </div>
         </section>
 
-        <section className="chart-layout" id="activity">
+        <section className="panel controls-panel" id="activity">
+          <div className="controls-row">
+            <div className="preset-group">
+              {rangePresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  className={`ghost-button small ${rangePreset === preset.id ? "selected" : ""}`}
+                  onClick={() => setRangePreset(preset.id)}
+                  type="button"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <label className="control-select">
+              <span>Aggregation</span>
+              <select value={aggregation} onChange={(event) => setAggregation(event.target.value as AggregationMode)}>
+                <option value="auto">Auto</option>
+                <option value="raw">Raw</option>
+                <option value="5m">5 minutes</option>
+                <option value="15m">15 minutes</option>
+                <option value="1h">1 hour</option>
+                <option value="1d">1 day</option>
+              </select>
+            </label>
+            {rangePreset === "custom" ? (
+              <div className="custom-range-group">
+                <label>
+                  <span>Start</span>
+                  <input type="datetime-local" value={customRange.start} onChange={(event) => setCustomRange((current) => ({ ...current, start: event.target.value }))} />
+                </label>
+                <label>
+                  <span>End</span>
+                  <input type="datetime-local" value={customRange.end} onChange={(event) => setCustomRange((current) => ({ ...current, end: event.target.value }))} />
+                </label>
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="chart-layout">
           <div className="panel chart-panel">
             <div className="panel-header">
               <div>
                 <p>Power usage</p>
-                <h3>{formatDateTime(deferredVisibleData.visibleStartLabel)} to {formatDateTime(deferredVisibleData.visibleEndLabel)}</h3>
+                <h3>{formatDateTime(deferredVisibleData.startLabel)} to {formatDateTime(deferredVisibleData.endLabel)}</h3>
               </div>
               <div className="chart-actions">
-                <span>{deferredVisibleData.points.length} samples</span>
+                <span>{chart.aggregation} aggregation</span>
                 <button className="ghost-button small" onClick={() => setWindowRange({ start: 0, end: 1 })} type="button">Reset view</button>
               </div>
             </div>
 
-            <div
-              className="chart-interaction"
-              onPointerDown={handleChartPointerDown}
-              ref={chartRef}
-            >
+            <div className="chart-interaction" onPointerDown={handleChartPointerDown} ref={chartRef}>
               <ResponsiveContainer width="100%" height={340}>
                 <AreaChart data={deferredVisibleData.points}>
                   <defs>
@@ -570,104 +764,122 @@ function App() {
                   <XAxis dataKey="recordedAt" tickFormatter={formatShortTime} tick={{ fill: "#94a3b8", fontSize: 12 }} minTickGap={28} />
                   <YAxis tick={{ fill: "#94a3b8", fontSize: 12 }} width={56} />
                   <Tooltip
-                    formatter={(value) => [tooltipNumber(value), "Power"]}
-                    labelFormatter={(value) => formatDateTime(value as string)}
+                    formatter={(value, name) => {
+                      const numericValue = toNumber(value);
+                      return [
+                        name === "energyKilowattHours"
+                          ? `${formatNumber(numericValue, 3)} kWh`
+                          : `${formatNumber(numericValue)} W`,
+                        String(name)
+                      ];
+                    }}
+                    labelFormatter={(value) => formatDateTime(String(value))}
                   />
-                  <Area type="monotone" dataKey="powerWatts" stroke="#34d399" strokeWidth={3} fill="url(#powerFill)" />
+                  <ReferenceLine y={overview.thresholds.activationPowerWatts} stroke="rgba(251, 191, 36, 0.35)" strokeDasharray="4 4" />
+                  <ReferenceLine y={overview.thresholds.criticalPowerWatts} stroke="rgba(248, 113, 113, 0.45)" strokeDasharray="5 5" />
+                  <Area type="monotone" dataKey="maxPowerWatts" stroke="#34d399" strokeWidth={3} fill="url(#powerFill)" />
                 </AreaChart>
               </ResponsiveContainer>
               <p className="interaction-hint">Drag to pan. Mouse wheel to zoom. Shift + wheel to scroll horizontally.</p>
             </div>
           </div>
 
-          <div className="insights-column" id="notifications">
+          <div className="insights-column">
             <article className="panel insight-card">
-              <span>Quiet window</span>
-              <strong>{overview.quietWindowHours} hours</strong>
-              <p>Alerts arm only after the pump stays quiet for the configured window.</p>
+              <span>Visible energy</span>
+              <strong>{formatNumber(deferredVisibleData.totalEnergyKwh, 3)} kWh</strong>
+              <p>{formatCurrency(deferredVisibleData.totalCost)}</p>
             </article>
             <article className="panel insight-card">
-              <span>Webhook status</span>
-              <strong>{overview.lastNotificationSentAt ? "Armed" : "Waiting"}</strong>
-              <p>Last sent: {formatDateTime(overview.lastNotificationSentAt)}</p>
+              <span>Health</span>
+              <strong>{overview.health.snapshot.isDeviceUnreachable ? "Unreachable" : overview.health.snapshot.isStale ? "Stale" : "Healthy"}</strong>
+              <p>Last successful poll {formatDateTime(overview.health.snapshot.lastSuccessfulPollAt)}</p>
             </article>
             <article className="panel insight-card">
-              <span>Polling health</span>
-              <strong>{overview.health.lastPollError ? "Attention needed" : "Healthy"}</strong>
-              <p>{overview.health.lastPollError ?? `Last successful poll ${formatDateTime(overview.health.lastSuccessfulPollAt)}`}</p>
+              <span>RSSI trend</span>
+              <strong>{overview.health.snapshot.currentRssi ?? "N/A"} dBm</strong>
+              <p>24h avg {overview.health.snapshot.rssiTrend.average24h?.toFixed(1) ?? "N/A"} dBm</p>
             </article>
             <article className="panel insight-card">
-              <span>Visible window cost</span>
-              <strong>{formatCurrency(visibleEnergyCost)}</strong>
-              <p>Calculated at {formatCurrency(settings.costPerKilowattHour)} per kWh.</p>
+              <span>Firmware</span>
+              <strong>{overview.health.device?.fw ?? "Unknown"}</strong>
+              <p>{overview.health.settings?.name ?? "Sump pump"}</p>
             </article>
           </div>
         </section>
 
-        <section className="bottom-layout">
+        <section className="bottom-layout" id="analytics">
           <div className="panel chart-panel">
             <div className="panel-header">
               <div>
-                <p>Hourly energy</p>
-                <h3>Usage in visible window</h3>
+                <p>Energy usage</p>
+                <h3>Visible range cost profile</h3>
               </div>
-              <span>{formatCurrency(visibleEnergyCost)}</span>
+              <span>{formatCurrency(deferredVisibleData.totalCost)}</span>
             </div>
             <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={deferredVisibleData.hourlyEnergy}>
+              <BarChart data={deferredVisibleData.points}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
-                <XAxis dataKey="hourBucket" tickFormatter={formatShortTime} tick={{ fill: "#94a3b8", fontSize: 12 }} />
+                <XAxis dataKey="recordedAt" tickFormatter={formatShortTime} tick={{ fill: "#94a3b8", fontSize: 12 }} minTickGap={28} />
                 <YAxis tick={{ fill: "#94a3b8", fontSize: 12 }} width={48} />
                 <Tooltip
-                  formatter={(value) => [tooltipNumber(value, 3), "Energy"]}
-                  labelFormatter={(value) => formatDateTime(value as string)}
+                  formatter={(value) => [`${formatCurrency(toNumber(value))}`, "Energy cost"]}
+                  labelFormatter={(value) => formatDateTime(String(value))}
                 />
-                <Bar dataKey="energyKilowattHours" fill="#f59e0b" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="energyCost" fill="#f59e0b" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
-          <div className="panel device-panel" id="device">
+          <div className="panel alert-panel">
             <div className="panel-header">
               <div>
-                <p>Device details</p>
-                <h3>Runtime configuration</h3>
+                <p>Recent alerts</p>
+                <h3>Discord notifications</h3>
               </div>
             </div>
-            <dl className="detail-grid">
-              <div>
-                <dt>Firmware</dt>
-                <dd>{overview.health.device?.fw ?? "Unknown"}</dd>
-              </div>
-              <div>
-                <dt>Timezone</dt>
-                <dd>{overview.health.settings?.timezone ?? "Unknown"}</dd>
-              </div>
-              <div>
-                <dt>MQTT</dt>
-                <dd>{overview.health.settings?.mqtt.enable ? "Enabled" : "Disabled"}</dd>
-              </div>
-              <div>
-                <dt>Alert threshold</dt>
-                <dd>{formatNumber(overview.thresholds.activationPowerWatts)} W</dd>
-              </div>
-              <div>
-                <dt>Configured device</dt>
-                <dd>{overview.health.settings?.name ?? "Sump pump"}</dd>
-              </div>
-              <div>
-                <dt>Current rate</dt>
-                <dd>{formatCurrency(settings.costPerKilowattHour)} / kWh</dd>
-              </div>
-            </dl>
+            <div className="alert-list">
+              {alerts.map((alert) => (
+                <article className={`alert-item ${alert.severity}`} key={alert.id}>
+                  <div>
+                    <strong>{alert.notificationType}</strong>
+                    <p>{formatDateTime(alert.sentAt)}</p>
+                  </div>
+                  <p>{alert.payload}</p>
+                </article>
+              ))}
+            </div>
           </div>
         </section>
 
-        <section className="panel timeline-panel">
+        <section className="panel abnormal-panel">
+          <div className="panel-header">
+            <div>
+              <p>Abnormal cycles</p>
+              <h3>Runs that need review</h3>
+            </div>
+          </div>
+          <div className="abnormal-grid">
+            {analytics.abnormalCycles.length ? (
+              analytics.abnormalCycles.map((cycle) => (
+                <article className="abnormal-card" key={cycle.activationId}>
+                  <strong>{formatDateTime(cycle.startedAt)}</strong>
+                  {cycle.reasons.map((reason) => (
+                    <p key={reason}>{reason}</p>
+                  ))}
+                </article>
+              ))
+            ) : (
+              <p className="empty-state">No abnormal cycles detected in the recent activation history.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="panel timeline-panel" id="timeline">
           <div className="panel-header">
             <div>
               <p>Activation log</p>
-              <h3>Recent sump pump runs</h3>
+              <h3>Runs and annotations</h3>
             </div>
           </div>
 
@@ -678,7 +890,7 @@ function App() {
               <span>Peak</span>
               <span>Energy</span>
               <span>Cost</span>
-              <span>Discord</span>
+              <span>Note</span>
             </div>
 
             {activations.map((activation) => (
@@ -688,9 +900,78 @@ function App() {
                 <span>{formatNumber(activation.peakWatts)} W</span>
                 <span>{formatNumber(activation.energyKilowattHours, 3)} kWh</span>
                 <span>{formatCurrency(activation.energyCost)}</span>
-                <span>{activation.notificationSentAt ? "Sent" : "No alert"}</span>
+                <button
+                  className="ghost-button small"
+                  onClick={() =>
+                    setAnnotationForm({
+                      activationEventId: String(activation.id),
+                      notedAt: localInputValue(activation.startedAt),
+                      category: "pump_issue",
+                      note: ""
+                    })
+                  }
+                  type="button"
+                >
+                  Annotate
+                </button>
               </div>
             ))}
+          </div>
+
+          <div className="annotation-layout">
+            <div className="annotation-editor">
+              <p className="eyebrow">Add annotation</p>
+              <div className="settings-grid annotation-grid">
+                <label>
+                  <span>Activation</span>
+                  <select value={annotationForm.activationEventId} onChange={(event) => setAnnotationForm((current) => ({ ...current, activationEventId: event.target.value }))}>
+                    <option value="">Standalone note</option>
+                    {activations.map((activation) => (
+                      <option key={activation.id} value={activation.id}>
+                        {formatDateTime(activation.startedAt)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Category</span>
+                  <select value={annotationForm.category} onChange={(event) => setAnnotationForm((current) => ({ ...current, category: event.target.value }))}>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="storm">Storm</option>
+                    <option value="float_switch">Float switch</option>
+                    <option value="pump_issue">Pump issue</option>
+                    <option value="inspection">Inspection</option>
+                    <option value="note">General note</option>
+                  </select>
+                </label>
+                <label className="full-width">
+                  <span>When</span>
+                  <input type="datetime-local" value={annotationForm.notedAt} onChange={(event) => setAnnotationForm((current) => ({ ...current, notedAt: event.target.value }))} />
+                </label>
+                <label className="full-width">
+                  <span>Note</span>
+                  <textarea rows={3} value={annotationForm.note} onChange={(event) => setAnnotationForm((current) => ({ ...current, note: event.target.value }))} />
+                </label>
+              </div>
+              <div className="drawer-actions">
+                <button className="primary-button" onClick={handleCreateAnnotation} type="button">Save annotation</button>
+              </div>
+              <p className="status-copy">{annotationState ?? "Use annotations to tag maintenance, storms, replacements, and pump issues."}</p>
+            </div>
+
+            <div className="annotation-feed">
+              <p className="eyebrow">Recent notes</p>
+              {annotations.map((annotation) => (
+                <article className="annotation-card" key={annotation.id}>
+                  <div className="annotation-card-head">
+                    <strong>{annotation.category.replaceAll("_", " ")}</strong>
+                    <button className="icon-button compact" onClick={() => void handleDeleteAnnotation(annotation.id)} type="button">×</button>
+                  </div>
+                  <p>{formatDateTime(annotation.notedAt)}</p>
+                  <p>{annotation.note}</p>
+                </article>
+              ))}
+            </div>
           </div>
         </section>
       </main>

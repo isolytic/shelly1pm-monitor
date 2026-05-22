@@ -54,6 +54,9 @@ export interface PollSample {
   totalWattMinutes: number;
   energyDeltaWattMinutes: number;
   relayOn: boolean;
+  wifiConnected: boolean;
+  rssi: number | null;
+  firmwareVersion: string | null;
   deviceTime: string | null;
   deviceUnixtime: number | null;
 }
@@ -70,4 +73,41 @@ export interface ActivationEventRecord {
 export interface SettingsRow {
   setting_key: string;
   setting_value: string;
+}
+
+export type NotificationSeverity = "info" | "warning" | "critical";
+
+export interface AnnotationRecord {
+  id: number;
+  activationEventId: number | null;
+  notedAt: string;
+  category: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AlertNotificationRecord {
+  id: number;
+  sentAt: string;
+  notificationType: string;
+  severity: NotificationSeverity;
+  alertKey: string | null;
+  activationEventId: number | null;
+  payload: string;
+}
+
+export interface HealthSnapshot {
+  lastSuccessfulPollAt: string | null;
+  lastPollError: string | null;
+  minutesSinceLastSuccessfulPoll: number | null;
+  isStale: boolean;
+  isDeviceUnreachable: boolean;
+  currentRssi: number | null;
+  rssiTrend: {
+    current: number | null;
+    average24h: number | null;
+    min24h: number | null;
+    max24h: number | null;
+  };
 }

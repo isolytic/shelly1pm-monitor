@@ -1,0 +1,19 @@
+{
+  "name": "shelly1pm-monitor",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c green,blue \"npm run dev -w @shelly1pm-monitor/server\" \"npm run dev -w @shelly1pm-monitor/web\"",
+    "build": "npm run build -w @shelly1pm-monitor/server && npm run build -w @shelly1pm-monitor/web",
+    "start": "npm run start -w @shelly1pm-monitor/server",
+    "lint": "npm run lint -w @shelly1pm-monitor/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
+

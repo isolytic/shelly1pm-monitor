@@ -1,0 +1,24 @@
+services:
+  shelly1pm-monitor:
+    image: ghcr.io/isolytic/shelly1pm-monitor:latest
+    container_name: shelly1pm-monitor
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      SHELLY_URL: ${SHELLY_URL:-http://10.10.80.59}
+      PORT: ${PORT:-8787}
+      DATA_DIR: ${DATA_DIR:-/app/data}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-30}
+      ACTIVATION_POWER_THRESHOLD_WATTS: ${ACTIVATION_POWER_THRESHOLD_WATTS:-150}
+      SIGNIFICANT_POWER_THRESHOLD_WATTS: ${SIGNIFICANT_POWER_THRESHOLD_WATTS:-150}
+      NOTIFICATION_COOLDOWN_HOURS: ${NOTIFICATION_COOLDOWN_HOURS:-8}
+      QUIET_WINDOW_HOURS: ${QUIET_WINDOW_HOURS:-8}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8787}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    volumes:
+      - shelly1pm-monitor-data:/app/data
+
+volumes:
+  shelly1pm-monitor-data:
+

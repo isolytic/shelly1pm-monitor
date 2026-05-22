@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+data/
+coverage/
+*.log
+npm-debug.log*
+.codex-run/
+.tmp-test-data*/
+*.tsbuildinfo

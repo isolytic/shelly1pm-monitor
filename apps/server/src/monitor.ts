@@ -31,6 +31,7 @@ interface AlertContext {
   severity: NotificationSeverity;
   alertKey: string;
   details: string;
+  isEnabled: boolean;
   activationEventId?: number | null;
   recordedAtIso?: string;
   liveLoadWatts?: number;
@@ -362,6 +363,7 @@ export class ShellyMonitorService {
           severity: "info",
           alertKey: `activation-start:${openEvent.id}`,
           details: `A new sump pump cycle started after ${this.settings.quietWindowHours} hours of quiet time.`,
+          isEnabled: this.settings.enableActivationAlerts,
           activationEventId: openEvent.id,
           recordedAtIso: sample.recordedAt,
           liveLoadWatts: sample.powerWatts,
@@ -402,6 +404,7 @@ export class ShellyMonitorService {
         severity: "critical",
         alertKey: "critical-power",
         details: `Power draw reached ${sample.powerWatts.toFixed(1)} W, above the critical threshold of ${this.settings.criticalPowerThresholdWatts} W.`,
+        isEnabled: this.settings.enableCriticalLoadAlerts,
         activationEventId: openEvent.id,
         recordedAtIso: sample.recordedAt,
         liveLoadWatts: sample.powerWatts,
@@ -415,6 +418,7 @@ export class ShellyMonitorService {
         severity: "warning",
         alertKey: `long-run:${openEvent.id}`,
         details: `This cycle has been running for ${durationMinutes.toFixed(0)} minutes, above the ${this.settings.longRunAlertMinutes}-minute threshold.`,
+        isEnabled: this.settings.enableLongRunAlerts,
         activationEventId: openEvent.id,
         recordedAtIso: sample.recordedAt,
         liveLoadWatts: sample.powerWatts,
@@ -434,6 +438,7 @@ export class ShellyMonitorService {
         severity: "warning",
         alertKey: `frequent-runs:${hourStartIso}`,
         details: `${recentRunCount} pump runs were detected within the last hour.`,
+        isEnabled: this.settings.enableFrequentRunAlerts,
         recordedAtIso: sample.recordedAt,
         liveLoadWatts: sample.powerWatts,
         cooldownMs: 60 * 60 * 1000
@@ -450,6 +455,7 @@ export class ShellyMonitorService {
           severity: "warning",
           alertKey: `no-run:${dayBucket}`,
           details: `No completed pump cycle has been recorded for ${quietHours.toFixed(1)} hours.`,
+          isEnabled: this.settings.enableNoRunAlerts,
           recordedAtIso: sample.recordedAt,
           liveLoadWatts: sample.powerWatts,
           cooldownMs: this.settings.noRunAlertHours * 60 * 60 * 1000
@@ -472,6 +478,7 @@ export class ShellyMonitorService {
         severity: "warning",
         alertKey: "stale-polling",
         details: `No successful Shelly poll has completed for ${minutesSinceHealthy.toFixed(1)} minutes.`,
+        isEnabled: this.settings.enableStalePollingAlerts,
         recordedAtIso: nowIso,
         cooldownMs: this.settings.stalePollingAlertMinutes * 60 * 1000
       });
@@ -483,6 +490,7 @@ export class ShellyMonitorService {
         severity: "critical",
         alertKey: "device-unreachable",
         details: `The Shelly has not responded for ${minutesSinceHealthy.toFixed(1)} minutes. Last error: ${this.lastPollError ?? "unknown error"}.`,
+        isEnabled: this.settings.enableDeviceUnreachableAlerts,
         recordedAtIso: nowIso,
         cooldownMs: this.settings.criticalNotificationCooldownMinutes * 60 * 1000
       });
@@ -490,7 +498,7 @@ export class ShellyMonitorService {
   }
 
   private async sendAlert(context: AlertContext) {
-    if (!this.settings.discordWebhookUrl) {
+    if (!context.isEnabled || !this.settings.discordWebhookUrl) {
       return false;
     }
 

@@ -240,6 +240,13 @@ const normalizeSettings = (payload: any, overview: OverviewResponse): MonitorSet
   noRunAlertHours: Number(payload?.noRunAlertHours ?? 24),
   stalePollingAlertMinutes: Number(payload?.stalePollingAlertMinutes ?? 10),
   deviceUnreachableAlertMinutes: Number(payload?.deviceUnreachableAlertMinutes ?? 10),
+  enableActivationAlerts: Boolean(payload?.enableActivationAlerts ?? true),
+  enableCriticalLoadAlerts: Boolean(payload?.enableCriticalLoadAlerts ?? true),
+  enableFrequentRunAlerts: Boolean(payload?.enableFrequentRunAlerts ?? true),
+  enableLongRunAlerts: Boolean(payload?.enableLongRunAlerts ?? true),
+  enableNoRunAlerts: Boolean(payload?.enableNoRunAlerts ?? true),
+  enableStalePollingAlerts: Boolean(payload?.enableStalePollingAlerts ?? true),
+  enableDeviceUnreachableAlerts: Boolean(payload?.enableDeviceUnreachableAlerts ?? true),
   publicWebUrl: payload?.publicWebUrl ?? overview.health.publicWebUrl,
   discordWebhookUrl: payload?.discordWebhookUrl ?? "",
   discordMessageTemplate: payload?.discordMessageTemplate ?? "",
@@ -819,6 +826,57 @@ function App() {
               <label>
                 <span>Unreachable alert (minutes)</span>
                 <input type="number" min="1" value={draftSettings.deviceUnreachableAlertMinutes} onChange={(event) => updateDraftSetting("deviceUnreachableAlertMinutes", Number(event.target.value))} />
+              </label>
+            </div>
+            <div className="settings-toggle-grid">
+              <label className="settings-toggle">
+                <input type="checkbox" checked={draftSettings.enableActivationAlerts} onChange={(event) => updateDraftSetting("enableActivationAlerts", event.target.checked)} />
+                <div>
+                  <strong>Activation after quiet window</strong>
+                  <p>Send the standard sump pump started alert after a quiet period.</p>
+                </div>
+              </label>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={draftSettings.enableCriticalLoadAlerts} onChange={(event) => updateDraftSetting("enableCriticalLoadAlerts", event.target.checked)} />
+                <div>
+                  <strong>Critical load alerts</strong>
+                  <p>Send more frequent critical Discord messages when load exceeds the critical threshold.</p>
+                </div>
+              </label>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={draftSettings.enableFrequentRunAlerts} onChange={(event) => updateDraftSetting("enableFrequentRunAlerts", event.target.checked)} />
+                <div>
+                  <strong>Frequent run alerts</strong>
+                  <p>Alert when too many pump cycles happen within an hour.</p>
+                </div>
+              </label>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={draftSettings.enableLongRunAlerts} onChange={(event) => updateDraftSetting("enableLongRunAlerts", event.target.checked)} />
+                <div>
+                  <strong>Long run alerts</strong>
+                  <p>Alert when a single cycle runs unusually long.</p>
+                </div>
+              </label>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={draftSettings.enableNoRunAlerts} onChange={(event) => updateDraftSetting("enableNoRunAlerts", event.target.checked)} />
+                <div>
+                  <strong>No-run alerts</strong>
+                  <p>Alert when no completed pump cycle has been seen for too long.</p>
+                </div>
+              </label>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={draftSettings.enableStalePollingAlerts} onChange={(event) => updateDraftSetting("enableStalePollingAlerts", event.target.checked)} />
+                <div>
+                  <strong>Stale polling alerts</strong>
+                  <p>Alert when polling has stopped succeeding within the stale threshold.</p>
+                </div>
+              </label>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={draftSettings.enableDeviceUnreachableAlerts} onChange={(event) => updateDraftSetting("enableDeviceUnreachableAlerts", event.target.checked)} />
+                <div>
+                  <strong>Device unreachable alerts</strong>
+                  <p>Alert when the Shelly appears fully unreachable for the configured window.</p>
+                </div>
               </label>
             </div>
           </section>

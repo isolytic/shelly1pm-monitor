@@ -24,10 +24,34 @@ export interface MonitorSettings {
   noRunAlertHours: number;
   stalePollingAlertMinutes: number;
   deviceUnreachableAlertMinutes: number;
+  enableActivationAlerts: boolean;
+  enableCriticalLoadAlerts: boolean;
+  enableFrequentRunAlerts: boolean;
+  enableLongRunAlerts: boolean;
+  enableNoRunAlerts: boolean;
+  enableStalePollingAlerts: boolean;
+  enableDeviceUnreachableAlerts: boolean;
   publicWebUrl: string;
   discordWebhookUrl: string;
   discordMessageTemplate: string;
 }
+
+const toBoolean = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
 
 export const DISCORD_TEMPLATE_VARIABLES = [
   "%timestamp%",
@@ -62,6 +86,13 @@ export const defaultMonitorSettings: MonitorSettings = {
   noRunAlertHours: toNumber(process.env.NO_RUN_ALERT_HOURS, 24),
   stalePollingAlertMinutes: toNumber(process.env.STALE_POLLING_ALERT_MINUTES, 10),
   deviceUnreachableAlertMinutes: toNumber(process.env.DEVICE_UNREACHABLE_ALERT_MINUTES, 10),
+  enableActivationAlerts: toBoolean(process.env.ENABLE_ACTIVATION_ALERTS, true),
+  enableCriticalLoadAlerts: toBoolean(process.env.ENABLE_CRITICAL_LOAD_ALERTS, true),
+  enableFrequentRunAlerts: toBoolean(process.env.ENABLE_FREQUENT_RUN_ALERTS, true),
+  enableLongRunAlerts: toBoolean(process.env.ENABLE_LONG_RUN_ALERTS, true),
+  enableNoRunAlerts: toBoolean(process.env.ENABLE_NO_RUN_ALERTS, true),
+  enableStalePollingAlerts: toBoolean(process.env.ENABLE_STALE_POLLING_ALERTS, true),
+  enableDeviceUnreachableAlerts: toBoolean(process.env.ENABLE_DEVICE_UNREACHABLE_ALERTS, true),
   publicWebUrl: process.env.PUBLIC_WEB_URL ?? "http://localhost:8787",
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL ?? "",
   discordMessageTemplate:
@@ -132,6 +163,34 @@ export const parseMonitorSettings = (raw: Partial<Record<keyof MonitorSettings, 
     String(raw.deviceUnreachableAlertMinutes ?? defaultMonitorSettings.deviceUnreachableAlertMinutes),
     defaultMonitorSettings.deviceUnreachableAlertMinutes
   ),
+  enableActivationAlerts:
+    typeof raw.enableActivationAlerts === "boolean"
+      ? raw.enableActivationAlerts
+      : toBoolean(String(raw.enableActivationAlerts ?? defaultMonitorSettings.enableActivationAlerts), defaultMonitorSettings.enableActivationAlerts),
+  enableCriticalLoadAlerts:
+    typeof raw.enableCriticalLoadAlerts === "boolean"
+      ? raw.enableCriticalLoadAlerts
+      : toBoolean(String(raw.enableCriticalLoadAlerts ?? defaultMonitorSettings.enableCriticalLoadAlerts), defaultMonitorSettings.enableCriticalLoadAlerts),
+  enableFrequentRunAlerts:
+    typeof raw.enableFrequentRunAlerts === "boolean"
+      ? raw.enableFrequentRunAlerts
+      : toBoolean(String(raw.enableFrequentRunAlerts ?? defaultMonitorSettings.enableFrequentRunAlerts), defaultMonitorSettings.enableFrequentRunAlerts),
+  enableLongRunAlerts:
+    typeof raw.enableLongRunAlerts === "boolean"
+      ? raw.enableLongRunAlerts
+      : toBoolean(String(raw.enableLongRunAlerts ?? defaultMonitorSettings.enableLongRunAlerts), defaultMonitorSettings.enableLongRunAlerts),
+  enableNoRunAlerts:
+    typeof raw.enableNoRunAlerts === "boolean"
+      ? raw.enableNoRunAlerts
+      : toBoolean(String(raw.enableNoRunAlerts ?? defaultMonitorSettings.enableNoRunAlerts), defaultMonitorSettings.enableNoRunAlerts),
+  enableStalePollingAlerts:
+    typeof raw.enableStalePollingAlerts === "boolean"
+      ? raw.enableStalePollingAlerts
+      : toBoolean(String(raw.enableStalePollingAlerts ?? defaultMonitorSettings.enableStalePollingAlerts), defaultMonitorSettings.enableStalePollingAlerts),
+  enableDeviceUnreachableAlerts:
+    typeof raw.enableDeviceUnreachableAlerts === "boolean"
+      ? raw.enableDeviceUnreachableAlerts
+      : toBoolean(String(raw.enableDeviceUnreachableAlerts ?? defaultMonitorSettings.enableDeviceUnreachableAlerts), defaultMonitorSettings.enableDeviceUnreachableAlerts),
   publicWebUrl:
     typeof raw.publicWebUrl === "string" && raw.publicWebUrl.trim()
       ? raw.publicWebUrl

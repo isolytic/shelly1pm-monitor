@@ -105,6 +105,13 @@ export interface MonitorSettingsResponse {
   noRunAlertHours: number;
   stalePollingAlertMinutes: number;
   deviceUnreachableAlertMinutes: number;
+  enableActivationAlerts: boolean;
+  enableCriticalLoadAlerts: boolean;
+  enableFrequentRunAlerts: boolean;
+  enableLongRunAlerts: boolean;
+  enableNoRunAlerts: boolean;
+  enableStalePollingAlerts: boolean;
+  enableDeviceUnreachableAlerts: boolean;
   publicWebUrl: string;
   discordWebhookUrl: string;
   discordMessageTemplate: string;

@@ -558,6 +558,44 @@ a {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.settings-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-toggle {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+.settings-toggle input {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+}
+
+.settings-toggle strong,
+.settings-toggle p {
+  margin: 0;
+}
+
+.settings-toggle strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.settings-toggle p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .settings-grid label {
   display: grid;
   gap: 8px;
@@ -714,7 +752,8 @@ a {
 
   .settings-grid-2,
   .settings-grid-3,
-  .settings-footer {
+  .settings-footer,
+  .settings-toggle-grid {
     grid-template-columns: 1fr;
   }
 }

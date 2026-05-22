@@ -5,12 +5,13 @@ import { defaultMonitorSettings, parseMonitorSettings, serverConfig, type Monito
 import type { ActivationEventRecord, PollSample, SettingsRow } from "./types.js";
 
 export class MonitorDatabase {
-  readonly db: Database.Database;
+  db: Database.Database;
+  readonly filePath: string;
 
   constructor() {
     fs.mkdirSync(serverConfig.dataDir, { recursive: true });
-    const filePath = path.join(serverConfig.dataDir, "monitor.sqlite");
-    this.db = new Database(filePath);
+    this.filePath = path.join(serverConfig.dataDir, "monitor.sqlite");
+    this.db = new Database(this.filePath);
     this.db.pragma("journal_mode = WAL");
     this.initialize();
   }
@@ -95,6 +96,38 @@ export class MonitorDatabase {
     });
 
     transaction(settings);
+  }
+
+  exportSnapshot() {
+    const exportPath = path.join(serverConfig.dataDir, `monitor-export-${Date.now()}.sqlite`);
+    const escapedPath = exportPath.replaceAll("'", "''");
+    this.db.exec(`VACUUM INTO '${escapedPath}'`);
+    const buffer = fs.readFileSync(exportPath);
+    fs.rmSync(exportPath, { force: true });
+    return buffer;
+  }
+
+  importSnapshot(buffer: Buffer) {
+    const tempPath = path.join(serverConfig.dataDir, `monitor-import-${Date.now()}.sqlite`);
+    fs.writeFileSync(tempPath, buffer);
+
+    const probeDb = new Database(tempPath, { readonly: true });
+    probeDb.prepare("SELECT name FROM sqlite_master LIMIT 1").get();
+    probeDb.close();
+
+    this.db.close();
+    fs.rmSync(`${this.filePath}-wal`, { force: true });
+    fs.rmSync(`${this.filePath}-shm`, { force: true });
+    fs.rmSync(this.filePath, { force: true });
+    fs.renameSync(tempPath, this.filePath);
+
+    this.db = new Database(this.filePath);
+    this.db.pragma("journal_mode = WAL");
+    this.initialize();
+  }
+
+  close() {
+    this.db.close();
   }
 
   getMostRecentSample(): PollSample | null {

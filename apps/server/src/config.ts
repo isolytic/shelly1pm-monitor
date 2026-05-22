@@ -16,6 +16,7 @@ export interface MonitorSettings {
   significantPowerThresholdWatts: number;
   notificationCooldownHours: number;
   quietWindowHours: number;
+  costPerKilowattHour: number;
   publicWebUrl: string;
   discordWebhookUrl: string;
   discordMessageTemplate: string;
@@ -25,6 +26,8 @@ export const DISCORD_TEMPLATE_VARIABLES = [
   "%timestamp%",
   "%live_load%",
   "%usage_today%",
+  "%usage_cost_today%",
+  "%cost_per_kwh%",
   "%current_status%",
   "%last_activation%",
   "%public_web_url%",
@@ -41,6 +44,7 @@ export const defaultMonitorSettings: MonitorSettings = {
   significantPowerThresholdWatts: toNumber(process.env.SIGNIFICANT_POWER_THRESHOLD_WATTS, 150),
   notificationCooldownHours: toNumber(process.env.NOTIFICATION_COOLDOWN_HOURS, 8),
   quietWindowHours: toNumber(process.env.QUIET_WINDOW_HOURS, 8),
+  costPerKilowattHour: toNumber(process.env.COST_PER_KWH, 0.15),
   publicWebUrl: process.env.PUBLIC_WEB_URL ?? "http://localhost:8787",
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL ?? "",
   discordMessageTemplate:
@@ -78,6 +82,10 @@ export const parseMonitorSettings = (raw: Partial<Record<keyof MonitorSettings, 
     String(raw.quietWindowHours ?? defaultMonitorSettings.quietWindowHours),
     defaultMonitorSettings.quietWindowHours
   ),
+  costPerKilowattHour: toNumber(
+    String(raw.costPerKilowattHour ?? defaultMonitorSettings.costPerKilowattHour),
+    defaultMonitorSettings.costPerKilowattHour
+  ),
   publicWebUrl:
     typeof raw.publicWebUrl === "string" && raw.publicWebUrl.trim()
       ? raw.publicWebUrl
@@ -104,5 +112,9 @@ export const validateMonitorSettings = (settings: MonitorSettings) => {
 
   if (settings.notificationCooldownHours < 1 || settings.quietWindowHours < 1) {
     throw new Error("Quiet window and cooldown must be at least 1 hour");
+  }
+
+  if (settings.costPerKilowattHour < 0) {
+    throw new Error("Cost per kilowatt-hour must be zero or greater");
   }
 };

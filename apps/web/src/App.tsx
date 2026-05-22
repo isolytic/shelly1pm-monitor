@@ -30,6 +30,14 @@ const formatNumber = (value: number, digits = 1) =>
 const tooltipNumber = (value: unknown, digits = 1) =>
   `${formatNumber(typeof value === "number" ? value : Number(value ?? 0), digits)}${digits === 3 ? " kWh" : " W"}`;
 
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
+  }).format(value);
+
 const formatDateTime = (value: string | null) => {
   if (!value) {
     return "Not yet recorded";
@@ -62,6 +70,8 @@ const buildPreviewMessage = (settings: MonitorSettingsResponse, overview: Overvi
     "%timestamp%": formatDateTime(overview.lastSampleAt),
     "%live_load%": `${formatNumber(overview.currentPowerWatts)} W`,
     "%usage_today%": `${formatNumber(overview.todayEnergyKilowattHours, 3)} kWh`,
+    "%usage_cost_today%": formatCurrency(overview.todayEnergyCost),
+    "%cost_per_kwh%": formatCurrency(settings.costPerKilowattHour),
     "%current_status%": overview.currentPowerWatts >= settings.activationPowerThresholdWatts ? "Pump Active" : "Pump Idle",
     "%last_activation%": formatDateTime(overview.lastActivation?.startedAt ?? null),
     "%public_web_url%": settings.publicWebUrl,
@@ -77,6 +87,8 @@ const buildPreviewMessage = (settings: MonitorSettingsResponse, overview: Overvi
   );
 };
 
+const fileInputId = "database-import-input";
+
 function App() {
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [chart, setChart] = useState<ChartResponse | null>(null);
@@ -91,6 +103,7 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [windowRange, setWindowRange] = useState({ start: 0, end: 1 });
   const chartRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragStateRef = useRef<{ x: number; start: number; end: number } | null>(null);
 
   useEffect(() => {
@@ -180,6 +193,43 @@ function App() {
     };
   }, [chart]);
 
+  useEffect(() => {
+    const chartElement = chartRef.current;
+    if (!chartElement) {
+      return;
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      if (!chart?.points.length) {
+        return;
+      }
+
+      event.preventDefault();
+      const rect = chartElement.getBoundingClientRect();
+      const pointerRatio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+
+      setWindowRange((current) => {
+        const span = current.end - current.start;
+        if (event.shiftKey) {
+          const panAmount = span * (event.deltaY > 0 ? 0.08 : -0.08);
+          const nextStart = clamp(current.start + panAmount, 0, 1 - span);
+          return { start: nextStart, end: nextStart + span };
+        }
+
+        const zoomFactor = event.deltaY > 0 ? 1.16 : 0.84;
+        const nextSpan = clamp(span * zoomFactor, MIN_WINDOW_RATIO, 1);
+        const anchor = current.start + span * pointerRatio;
+        const nextStart = clamp(anchor - nextSpan * pointerRatio, 0, 1 - nextSpan);
+        return { start: nextStart, end: nextStart + nextSpan };
+      });
+    };
+
+    chartElement.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      chartElement.removeEventListener("wheel", onWheel);
+    };
+  }, [chart]);
+
   const visibleData = useMemo(() => {
     if (!chart) {
       return {
@@ -233,6 +283,7 @@ function App() {
 
   const previewMessage = buildPreviewMessage(draftSettings, overview);
   const statusTone = overview.currentPowerWatts >= overview.thresholds.activationPowerWatts ? "active" : "idle";
+  const visibleEnergyCost = deferredVisibleData.hourlyEnergy.reduce((sum, row) => sum + row.energyKilowattHours * settings.costPerKilowattHour, 0);
 
   const updateDraftSetting = <K extends keyof MonitorSettingsResponse>(key: K, value: MonitorSettingsResponse[K]) => {
     setDraftSettings((current) => (current ? { ...current, [key]: value } : current));
@@ -253,6 +304,7 @@ function App() {
           significantPowerThresholdWatts: Number(draftSettings.significantPowerThresholdWatts),
           notificationCooldownHours: Number(draftSettings.notificationCooldownHours),
           quietWindowHours: Number(draftSettings.quietWindowHours),
+          costPerKilowattHour: Number(draftSettings.costPerKilowattHour),
           publicWebUrl: draftSettings.publicWebUrl,
           discordWebhookUrl: draftSettings.discordWebhookUrl,
           discordMessageTemplate: draftSettings.discordMessageTemplate
@@ -285,6 +337,7 @@ function App() {
           significantPowerThresholdWatts: Number(draftSettings.significantPowerThresholdWatts),
           notificationCooldownHours: Number(draftSettings.notificationCooldownHours),
           quietWindowHours: Number(draftSettings.quietWindowHours),
+          costPerKilowattHour: Number(draftSettings.costPerKilowattHour),
           publicWebUrl: draftSettings.publicWebUrl,
           discordWebhookUrl: draftSettings.discordWebhookUrl,
           discordMessageTemplate: draftSettings.discordMessageTemplate
@@ -301,28 +354,8 @@ function App() {
     }
   };
 
-  const handleChartWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    if (!chart.points.length || !chartRef.current) {
-      return;
-    }
-
-    event.preventDefault();
-    const rect = chartRef.current.getBoundingClientRect();
-    const pointerRatio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-    const span = windowRange.end - windowRange.start;
-
-    if (event.shiftKey) {
-      const panAmount = span * (event.deltaY > 0 ? 0.08 : -0.08);
-      const nextStart = clamp(windowRange.start + panAmount, 0, 1 - span);
-      setWindowRange({ start: nextStart, end: nextStart + span });
-      return;
-    }
-
-    const zoomFactor = event.deltaY > 0 ? 1.16 : 0.84;
-    const nextSpan = clamp(span * zoomFactor, MIN_WINDOW_RATIO, 1);
-    const anchor = windowRange.start + span * pointerRatio;
-    const nextStart = clamp(anchor - nextSpan * pointerRatio, 0, 1 - nextSpan);
-    setWindowRange({ start: nextStart, end: nextStart + nextSpan });
+  const handleExportDatabase = () => {
+    window.location.href = "/api/database/export";
   };
 
   const handleChartPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -331,6 +364,35 @@ function App() {
       start: windowRange.start,
       end: windowRange.end
     };
+  };
+
+  const handleImportDatabase = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      setSaveState("Importing database…");
+      const buffer = await file.arrayBuffer();
+      const response = await fetch("/api/database/import", {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: buffer
+      });
+      const payload = (await response.json()) as { ok?: boolean; settings?: MonitorSettingsResponse; error?: string };
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error ?? "Unable to import database");
+      }
+
+      window.location.reload();
+    } catch (importError) {
+      setSaveState(importError instanceof Error ? importError.message : "Unable to import database");
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
   };
 
   return (
@@ -350,6 +412,12 @@ function App() {
           <a href="#activity" onClick={() => setIsNavOpen(false)}>Activity</a>
           <a href="#notifications" onClick={() => setIsNavOpen(false)}>Notifications</a>
           <a href="#device" onClick={() => setIsNavOpen(false)}>Device</a>
+          <button className="drawer-nav-button" onClick={() => {
+            setIsNavOpen(false);
+            setIsSettingsOpen(true);
+          }} type="button">
+            Settings
+          </button>
         </nav>
         <div className="sidebar-device">
           <span className="device-chip">{overview.health.settings?.name ?? "Unnamed Device"}</span>
@@ -393,6 +461,10 @@ function App() {
             <input type="number" min="1" value={draftSettings.quietWindowHours} onChange={(event) => updateDraftSetting("quietWindowHours", Number(event.target.value))} />
           </label>
           <label>
+            <span>Cost per kWh (USD)</span>
+            <input type="number" min="0" step="0.01" value={draftSettings.costPerKilowattHour} onChange={(event) => updateDraftSetting("costPerKilowattHour", Number(event.target.value))} />
+          </label>
+          <label>
             <span>Notification cooldown (hours)</span>
             <input type="number" min="1" value={draftSettings.notificationCooldownHours} onChange={(event) => updateDraftSetting("notificationCooldownHours", Number(event.target.value))} />
           </label>
@@ -421,6 +493,9 @@ function App() {
         </div>
 
         <div className="drawer-actions">
+          <input id={fileInputId} ref={fileInputRef} accept=".sqlite,.db,application/octet-stream" className="hidden-file-input" onChange={handleImportDatabase} type="file" />
+          <button className="ghost-button" onClick={handleExportDatabase} type="button">Export database</button>
+          <label className="ghost-button file-label" htmlFor={fileInputId}>Import database</label>
           <button className="ghost-button" onClick={handleTestWebhook} type="button">Test Discord webhook</button>
           <button className="primary-button" disabled={!hasUnsavedSettings} onClick={handleSaveSettings} type="button">Save settings</button>
         </div>
@@ -436,7 +511,6 @@ function App() {
               <h2>Energy Monitor</h2>
             </div>
           </div>
-          <button className="primary-button" onClick={() => setIsSettingsOpen(true)} type="button">Settings</button>
         </header>
 
         <section className="hero-panel compact-hero" id="overview">
@@ -452,14 +526,16 @@ function App() {
             <article>
               <span>Today</span>
               <strong>{formatNumber(overview.todayEnergyKilowattHours, 3)} kWh</strong>
+              <small>{formatCurrency(overview.todayEnergyCost)}</small>
             </article>
             <article>
               <span>Last activation</span>
               <strong>{formatDateTime(overview.lastActivation?.startedAt ?? null)}</strong>
             </article>
             <article>
-              <span>Polling</span>
-              <strong>{settings.pollIntervalSeconds}s</strong>
+              <span>Cost rate</span>
+              <strong>{formatCurrency(settings.costPerKilowattHour)}</strong>
+              <small>per kWh</small>
             </article>
           </div>
         </section>
@@ -480,7 +556,6 @@ function App() {
             <div
               className="chart-interaction"
               onPointerDown={handleChartPointerDown}
-              onWheel={handleChartWheel}
               ref={chartRef}
             >
               <ResponsiveContainer width="100%" height={340}>
@@ -522,9 +597,9 @@ function App() {
               <p>{overview.health.lastPollError ?? `Last successful poll ${formatDateTime(overview.health.lastSuccessfulPollAt)}`}</p>
             </article>
             <article className="panel insight-card">
-              <span>Configured device</span>
-              <strong>{overview.health.settings?.name ?? "Sump pump"}</strong>
-              <p>{settings.shellyUrl}</p>
+              <span>Visible window cost</span>
+              <strong>{formatCurrency(visibleEnergyCost)}</strong>
+              <p>Calculated at {formatCurrency(settings.costPerKilowattHour)} per kWh.</p>
             </article>
           </div>
         </section>
@@ -536,6 +611,7 @@ function App() {
                 <p>Hourly energy</p>
                 <h3>Usage in visible window</h3>
               </div>
+              <span>{formatCurrency(visibleEnergyCost)}</span>
             </div>
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={deferredVisibleData.hourlyEnergy}>
@@ -575,6 +651,14 @@ function App() {
                 <dt>Alert threshold</dt>
                 <dd>{formatNumber(overview.thresholds.activationPowerWatts)} W</dd>
               </div>
+              <div>
+                <dt>Configured device</dt>
+                <dd>{overview.health.settings?.name ?? "Sump pump"}</dd>
+              </div>
+              <div>
+                <dt>Current rate</dt>
+                <dd>{formatCurrency(settings.costPerKilowattHour)} / kWh</dd>
+              </div>
             </dl>
           </div>
         </section>
@@ -593,6 +677,7 @@ function App() {
               <span>Duration</span>
               <span>Peak</span>
               <span>Energy</span>
+              <span>Cost</span>
               <span>Discord</span>
             </div>
 
@@ -602,6 +687,7 @@ function App() {
                 <span>{formatDuration(activation.startedAt, activation.endedAt)}</span>
                 <span>{formatNumber(activation.peakWatts)} W</span>
                 <span>{formatNumber(activation.energyKilowattHours, 3)} kWh</span>
+                <span>{formatCurrency(activation.energyCost)}</span>
                 <span>{activation.notificationSentAt ? "Sent" : "No alert"}</span>
               </div>
             ))}

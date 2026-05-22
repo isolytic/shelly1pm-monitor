@@ -220,6 +220,7 @@ a {
 }
 
 .nav-list a,
+.drawer-nav-button,
 .sidebar-device,
 .template-panel,
 .hero-stats article,
@@ -231,6 +232,13 @@ a {
 
 .nav-list a {
   padding: 13px 14px;
+}
+
+.drawer-nav-button {
+  padding: 13px 14px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
 }
 
 .sidebar-device {
@@ -315,6 +323,12 @@ a {
   font-size: 1.45rem;
 }
 
+.hero-stats small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
 .chart-layout,
 .bottom-layout {
   display: grid;
@@ -388,7 +402,7 @@ a {
 
 .timeline-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
   gap: 12px;
   padding: 14px 0;
   border-top: 1px solid var(--line);
@@ -451,8 +465,18 @@ a {
 
 .drawer-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   justify-content: flex-end;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.file-label {
+  display: inline-flex;
+  align-items: center;
 }
 
 .status-copy {
@@ -483,7 +507,7 @@ a {
   }
 
   .timeline-row {
-    grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr 1fr;
     font-size: 0.84rem;
   }
 

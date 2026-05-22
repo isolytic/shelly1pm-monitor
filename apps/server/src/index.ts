@@ -47,6 +47,30 @@ app.post("/api/settings/test-webhook", async (_req, res) => {
   }
 });
 
+app.get("/api/database/export", (_req, res) => {
+  const buffer = monitor.exportDatabase();
+  res.setHeader("content-type", "application/octet-stream");
+  res.setHeader(
+    "content-disposition",
+    `attachment; filename="shelly1pm-monitor-${new Date().toISOString().slice(0, 10)}.sqlite"`
+  );
+  res.send(buffer);
+});
+
+app.post("/api/database/import", express.raw({ type: "application/octet-stream", limit: "50mb" }), async (req, res) => {
+  try {
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      throw new Error("Database import requires a SQLite file body");
+    }
+
+    res.json(await monitor.importDatabase(req.body));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to import database"
+    });
+  }
+});
+
 app.get("/api/chart", (req, res) => {
   const rangeHours = Number(req.query.rangeHours ?? 24);
   res.json(monitor.getChart(Number.isFinite(rangeHours) ? rangeHours : 24));

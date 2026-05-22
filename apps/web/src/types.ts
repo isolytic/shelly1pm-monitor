@@ -4,6 +4,7 @@ export interface OverviewResponse {
   currentRelayOn: boolean;
   lastSampleAt: string | null;
   todayEnergyKilowattHours: number;
+  todayEnergyCost: number;
   todayPeakWatts: number;
   quietWindowHours: number;
   notificationCooldownHours: number;
@@ -25,6 +26,7 @@ export interface OverviewResponse {
     activationPowerWatts: number;
     significantPowerWatts: number;
   };
+  costPerKilowattHour: number;
   health: {
     shellyUrl: string;
     publicWebUrl: string;
@@ -65,6 +67,7 @@ export interface ActivationRecord {
   endedAt: string | null;
   peakWatts: number;
   energyKilowattHours: number;
+  energyCost: number;
   notificationSentAt: string | null;
 }
 
@@ -75,6 +78,7 @@ export interface MonitorSettingsResponse {
   significantPowerThresholdWatts: number;
   notificationCooldownHours: number;
   quietWindowHours: number;
+  costPerKilowattHour: number;
   publicWebUrl: string;
   discordWebhookUrl: string;
   discordMessageTemplate: string;

@@ -14,6 +14,7 @@ services:
       SIGNIFICANT_POWER_THRESHOLD_WATTS: ${SIGNIFICANT_POWER_THRESHOLD_WATTS:-150}
       NOTIFICATION_COOLDOWN_HOURS: ${NOTIFICATION_COOLDOWN_HOURS:-8}
       QUIET_WINDOW_HOURS: ${QUIET_WINDOW_HOURS:-8}
+      COST_PER_KWH: ${COST_PER_KWH:-0.15}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8787}
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       DISCORD_MESSAGE_TEMPLATE: ${DISCORD_MESSAGE_TEMPLATE:-Sump pump activity detected at %timestamp%. Live load: %live_load%. Usage today: %usage_today%. Status: %current_status%. Web UI: %public_web_url%}

@@ -14,7 +14,7 @@ const wattsToKilowatts = (watts: number) => watts / 1000;
 const wattMinutesToKilowattHours = (wattMinutes: number) => wattMinutes / 60000;
 
 export class ShellyMonitorService {
-  readonly db = new MonitorDatabase();
+  db = new MonitorDatabase();
   private timer: NodeJS.Timeout | null = null;
   private pollInFlight = false;
   private settings: MonitorSettings = defaultMonitorSettings;
@@ -126,6 +126,25 @@ export class ShellyMonitorService {
     };
   }
 
+  exportDatabase() {
+    return this.db.exportSnapshot();
+  }
+
+  async importDatabase(buffer: Buffer) {
+    this.stop();
+    this.db.importSnapshot(buffer);
+    this.settings = this.db.getSettings();
+    this.client = new ShellyClient(this.settings.shellyUrl);
+    await this.refreshDeviceMetadata();
+    await this.pollOnce();
+    this.startPolling();
+
+    return {
+      ok: true,
+      settings: this.getSettings()
+    };
+  }
+
   getOverview() {
     const lastSample = this.db.getMostRecentSample();
     const stats = this.db.getOverviewStats();
@@ -137,6 +156,7 @@ export class ShellyMonitorService {
       currentRelayOn: lastSample?.relayOn ?? false,
       lastSampleAt: lastSample?.recordedAt ?? null,
       todayEnergyKilowattHours: wattMinutesToKilowattHours(stats.todayEnergyWattMinutes),
+      todayEnergyCost: wattMinutesToKilowattHours(stats.todayEnergyWattMinutes) * this.settings.costPerKilowattHour,
       todayPeakWatts: stats.todayPeakWatts,
       quietWindowHours: this.settings.quietWindowHours,
       notificationCooldownHours: this.settings.notificationCooldownHours,
@@ -156,6 +176,7 @@ export class ShellyMonitorService {
         activationPowerWatts: this.settings.activationPowerThresholdWatts,
         significantPowerWatts: this.settings.significantPowerThresholdWatts
       },
+      costPerKilowattHour: this.settings.costPerKilowattHour,
       health: this.getDeviceSummary()
     };
   }
@@ -182,6 +203,7 @@ export class ShellyMonitorService {
       endedAt: event.ended_at,
       peakWatts: event.peak_watts,
       energyKilowattHours: wattMinutesToKilowattHours(event.energy_watt_minutes),
+      energyCost: wattMinutesToKilowattHours(event.energy_watt_minutes) * this.settings.costPerKilowattHour,
       notificationSentAt: event.notification_sent_at
     }));
   }
@@ -273,6 +295,8 @@ export class ShellyMonitorService {
       "%timestamp%": timestamp,
       "%live_load%": `${(liveLoadWatts ?? overview.currentPowerWatts).toFixed(1)} W`,
       "%usage_today%": `${overview.todayEnergyKilowattHours.toFixed(3)} kWh`,
+      "%usage_cost_today%": `$${overview.todayEnergyCost.toFixed(2)}`,
+      "%cost_per_kwh%": `$${activeSettings.costPerKilowattHour.toFixed(2)}`,
       "%current_status%": overview.currentPowerWatts >= activeSettings.activationPowerThresholdWatts ? "Pump Active" : "Pump Idle",
       "%last_activation%": overview.lastActivation?.startedAt
         ? new Date(overview.lastActivation.startedAt).toLocaleString("en-US", {

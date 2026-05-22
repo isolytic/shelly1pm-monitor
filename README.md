@@ -6,10 +6,12 @@ Web-based monitoring for a Shelly 1PM attached to a sump pump. The app polls the
 
 - Polls a Shelly 1PM Gen1 device at `/status`, `/settings`, and `/shelly`
 - Stores historical wattage samples and incremental energy usage in SQLite
+- Tracks cost using a configurable `cost per kWh` setting
 - Detects sump pump activations based on a configurable wattage threshold
 - Suppresses Discord notifications so only one alert can be sent every 8 hours
 - Serves a responsive React dashboard with live status, dark-mode graphs, zoom/pan controls, and activation history
 - Stores editable runtime settings in SQLite so the monitored Shelly URL, thresholds, webhook, and Discord message template can be changed from the web UI
+- Supports database export/import so a tested local SQLite database can be moved into production
 - Publishes a production image to GHCR for `docker compose` deployments
 
 ## Environment
@@ -25,6 +27,7 @@ Copy `.env.example` to `.env` and adjust values as needed.
 | `ACTIVATION_POWER_THRESHOLD_WATTS` | `150` | Pump-on threshold |
 | `SIGNIFICANT_POWER_THRESHOLD_WATTS` | `150` | Quiet-window threshold |
 | `QUIET_WINDOW_HOURS` | `8` | How long the pump must stay quiet before a new activation can alert |
+| `COST_PER_KWH` | `0.15` | Electricity rate used for cost calculations |
 | `NOTIFICATION_COOLDOWN_HOURS` | `8` | Minimum gap between Discord webhook messages |
 | `PUBLIC_WEB_URL` | `http://localhost:8787` | URL included in Discord alerts |
 | `DISCORD_WEBHOOK_URL` | empty | Discord webhook endpoint |
@@ -77,10 +80,12 @@ The app includes a settings drawer for:
 - Activation and significant-usage thresholds
 - Quiet-window and notification cooldown values
 - Public web URL
+- Cost per kWh
 - Discord webhook URL
 - Custom Discord message templates with variables such as `%live_load%`, `%usage_today%`, `%timestamp%`, and `%public_web_url%`
 
 The settings drawer also includes a test-webhook button that sends the rendered message immediately.
+It also includes database export/import controls for migrating the SQLite file between environments.
 
 ## Notes on Shelly energy units
 

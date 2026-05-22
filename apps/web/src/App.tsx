@@ -36,6 +36,13 @@ const rangePresets = [
 type RangePreset = (typeof rangePresets)[number]["id"];
 type AggregationMode = "auto" | "raw" | "5m" | "15m" | "1h" | "1d";
 
+type JsonFetchResult<T> = {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  text: string;
+};
+
 const formatNumber = (value: number, digits = 1) =>
   new Intl.NumberFormat("en-US", {
     maximumFractionDigits: digits,
@@ -91,6 +98,172 @@ const localInputValue = (iso: string | null) => {
 };
 
 const toIsoFromLocalInput = (value: string) => new Date(value).toISOString();
+
+const fetchJson = async <T,>(url: string): Promise<JsonFetchResult<T>> => {
+  const response = await fetch(url);
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  const isJson = contentType.includes("application/json");
+
+  if (!isJson) {
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: null,
+      text
+    };
+  }
+
+  try {
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: JSON.parse(text) as T,
+      text
+    };
+  } catch {
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: null,
+      text
+    };
+  }
+};
+
+const normalizeOverview = (payload: any): OverviewResponse => {
+  const activationThreshold = Number(payload?.thresholds?.activationPowerWatts ?? 0);
+  const significantThreshold = Number(payload?.thresholds?.significantPowerWatts ?? activationThreshold);
+  const device = payload?.health?.device ?? null;
+  const settingsInfo = payload?.health?.settings ?? null;
+  const lastSuccessfulPollAt = payload?.health?.snapshot?.lastSuccessfulPollAt ?? payload?.health?.lastSuccessfulPollAt ?? null;
+  const lastPollError = payload?.health?.snapshot?.lastPollError ?? payload?.health?.lastPollError ?? null;
+
+  return {
+    currentPowerWatts: Number(payload?.currentPowerWatts ?? 0),
+    currentPowerKilowatts: Number(payload?.currentPowerKilowatts ?? 0),
+    currentRelayOn: Boolean(payload?.currentRelayOn),
+    lastSampleAt: payload?.lastSampleAt ?? null,
+    todayEnergyKilowattHours: Number(payload?.todayEnergyKilowattHours ?? 0),
+    todayEnergyCost: Number(payload?.todayEnergyCost ?? 0),
+    todayPeakWatts: Number(payload?.todayPeakWatts ?? 0),
+    quietWindowHours: Number(payload?.quietWindowHours ?? 8),
+    notificationCooldownHours: Number(payload?.notificationCooldownHours ?? 8),
+    lastNotificationSentAt: payload?.lastNotificationSentAt ?? null,
+    openActivation: payload?.openActivation
+      ? {
+          ...payload.openActivation,
+          energyCost: Number(payload.openActivation.energyCost ?? 0)
+        }
+      : null,
+    lastActivation: payload?.lastActivation ?? null,
+    thresholds: {
+      activationPowerWatts: activationThreshold,
+      significantPowerWatts: significantThreshold,
+      criticalPowerWatts: Number(payload?.thresholds?.criticalPowerWatts ?? significantThreshold)
+    },
+    costPerKilowattHour: Number(payload?.costPerKilowattHour ?? 0),
+    health: {
+      shellyUrl: payload?.health?.shellyUrl ?? "",
+      publicWebUrl: payload?.health?.publicWebUrl ?? "",
+      device,
+      settings: settingsInfo
+        ? {
+            name: settingsInfo.name ?? settingsInfo.device?.hostname ?? "Sump pump",
+            timezone: settingsInfo.timezone ?? "Unknown",
+            mqtt: {
+              enable: Boolean(settingsInfo.mqtt?.enable),
+              server: settingsInfo.mqtt?.server ?? "",
+              update_period: settingsInfo.mqtt?.update_period
+            }
+          }
+        : null,
+      lastSuccessfulPollAt,
+      lastPollError,
+      snapshot: {
+        lastSuccessfulPollAt,
+        lastPollError,
+        minutesSinceLastSuccessfulPoll: payload?.health?.snapshot?.minutesSinceLastSuccessfulPoll ?? null,
+        isStale: Boolean(payload?.health?.snapshot?.isStale),
+        isDeviceUnreachable: Boolean(payload?.health?.snapshot?.isDeviceUnreachable),
+        currentRssi: payload?.health?.snapshot?.currentRssi ?? null,
+        rssiTrend: {
+          current: payload?.health?.snapshot?.rssiTrend?.current ?? null,
+          average24h: payload?.health?.snapshot?.rssiTrend?.average24h ?? null,
+          min24h: payload?.health?.snapshot?.rssiTrend?.min24h ?? null,
+          max24h: payload?.health?.snapshot?.rssiTrend?.max24h ?? null
+        }
+      }
+    }
+  };
+};
+
+const normalizeChart = (payload: any, startIso: string, endIso: string, costPerKilowattHour: number): ChartResponse => {
+  const points = Array.isArray(payload?.points) ? payload.points : [];
+  const normalizedPoints = points.map((point: any) => {
+    const energyKilowattHours = Number(point.energyKilowattHours ?? 0);
+    const averagePowerWatts = Number(point.averagePowerWatts ?? point.powerWatts ?? 0);
+    const maxPowerWatts = Number(point.maxPowerWatts ?? point.powerWatts ?? averagePowerWatts);
+    return {
+      recordedAt: String(point.recordedAt),
+      averagePowerWatts,
+      maxPowerWatts,
+      energyKilowattHours,
+      energyCost: Number(point.energyCost ?? energyKilowattHours * costPerKilowattHour)
+    };
+  });
+
+  return {
+    startIso: payload?.startIso ?? startIso,
+    endIso: payload?.endIso ?? endIso,
+    aggregation: payload?.aggregation ?? "raw",
+    points: normalizedPoints
+  };
+};
+
+const normalizeSettings = (payload: any, overview: OverviewResponse): MonitorSettingsResponse => ({
+  shellyUrl: payload?.shellyUrl ?? overview.health.shellyUrl,
+  pollIntervalSeconds: Number(payload?.pollIntervalSeconds ?? 30),
+  activationPowerThresholdWatts: Number(payload?.activationPowerThresholdWatts ?? overview.thresholds.activationPowerWatts),
+  significantPowerThresholdWatts: Number(
+    payload?.significantPowerThresholdWatts ?? overview.thresholds.significantPowerWatts
+  ),
+  criticalPowerThresholdWatts: Number(
+    payload?.criticalPowerThresholdWatts ?? overview.thresholds.criticalPowerWatts ?? overview.thresholds.significantPowerWatts
+  ),
+  notificationCooldownHours: Number(payload?.notificationCooldownHours ?? overview.notificationCooldownHours),
+  criticalNotificationCooldownMinutes: Number(payload?.criticalNotificationCooldownMinutes ?? 30),
+  quietWindowHours: Number(payload?.quietWindowHours ?? overview.quietWindowHours),
+  costPerKilowattHour: Number(payload?.costPerKilowattHour ?? overview.costPerKilowattHour),
+  runsPerHourAlertThreshold: Number(payload?.runsPerHourAlertThreshold ?? 6),
+  longRunAlertMinutes: Number(payload?.longRunAlertMinutes ?? 15),
+  noRunAlertHours: Number(payload?.noRunAlertHours ?? 24),
+  stalePollingAlertMinutes: Number(payload?.stalePollingAlertMinutes ?? 10),
+  deviceUnreachableAlertMinutes: Number(payload?.deviceUnreachableAlertMinutes ?? 10),
+  publicWebUrl: payload?.publicWebUrl ?? overview.health.publicWebUrl,
+  discordWebhookUrl: payload?.discordWebhookUrl ?? "",
+  discordMessageTemplate: payload?.discordMessageTemplate ?? "",
+  availableTemplateVariables: Array.isArray(payload?.availableTemplateVariables) ? payload.availableTemplateVariables : [],
+  discordMessagePreview: payload?.discordMessagePreview ?? ""
+});
+
+const normalizeActivations = (payload: any, costPerKilowattHour: number): ActivationRecord[] =>
+  (Array.isArray(payload) ? payload : []).map((activation: any) => ({
+    id: Number(activation.id),
+    startedAt: String(activation.startedAt),
+    endedAt: activation.endedAt ?? null,
+    peakWatts: Number(activation.peakWatts ?? 0),
+    energyKilowattHours: Number(activation.energyKilowattHours ?? 0),
+    energyCost: Number(activation.energyCost ?? Number(activation.energyKilowattHours ?? 0) * costPerKilowattHour),
+    notificationSentAt: activation.notificationSentAt ?? null
+  }));
+
+const defaultAnalytics = (): AnalyticsResponse => ({
+  averageRunDurationMinutes: 0,
+  runsPerDay: 0,
+  longestQuietMinutes: 0,
+  abnormalCycles: []
+});
 
 const buildPreviewMessage = (settings: MonitorSettingsResponse, overview: OverviewResponse) => {
   const replacements: Record<string, string> = {
@@ -176,41 +349,47 @@ function App() {
 
     const load = async () => {
       try {
-        const [overviewRes, chartRes, activationsRes, settingsRes, analyticsRes, alertsRes, annotationsRes] =
-          await Promise.all([
-            fetch("/api/overview"),
-            fetch(
-              `/api/chart?start=${encodeURIComponent(chartRange.startIso)}&end=${encodeURIComponent(chartRange.endIso)}&aggregation=${aggregation}`
-            ),
-            fetch("/api/activations?limit=20"),
-            fetch("/api/settings"),
-            fetch("/api/analytics"),
-            fetch("/api/alerts?limit=12"),
-            fetch("/api/annotations?limit=30")
-          ]);
-
-        if (
-          !overviewRes.ok ||
-          !chartRes.ok ||
-          !activationsRes.ok ||
-          !settingsRes.ok ||
-          !analyticsRes.ok ||
-          !alertsRes.ok ||
-          !annotationsRes.ok
-        ) {
+        const overviewResult = await fetchJson<any>("/api/overview");
+        if (!overviewResult.ok || !overviewResult.data) {
           throw new Error("Unable to load monitor data");
         }
 
-        const [overviewJson, chartJson, activationsJson, settingsJson, analyticsJson, alertsJson, annotationsJson] =
+        const overviewJson = normalizeOverview(overviewResult.data);
+        const [chartResult, activationsResult, settingsResult, analyticsResult, alertsResult, annotationsResult] =
           await Promise.all([
-            overviewRes.json() as Promise<OverviewResponse>,
-            chartRes.json() as Promise<ChartResponse>,
-            activationsRes.json() as Promise<ActivationRecord[]>,
-            settingsRes.json() as Promise<MonitorSettingsResponse>,
-            analyticsRes.json() as Promise<AnalyticsResponse>,
-            alertsRes.json() as Promise<AlertRecord[]>,
-            annotationsRes.json() as Promise<AnnotationRecord[]>
+            fetchJson<any>(
+              `/api/chart?start=${encodeURIComponent(chartRange.startIso)}&end=${encodeURIComponent(chartRange.endIso)}&aggregation=${aggregation}`
+            ),
+            fetchJson<any>("/api/activations?limit=20"),
+            fetchJson<any>("/api/settings"),
+            fetchJson<any>("/api/analytics"),
+            fetchJson<any>("/api/alerts?limit=12"),
+            fetchJson<any>("/api/annotations?limit=30")
           ]);
+
+        if (!chartResult.ok || !chartResult.data || !activationsResult.ok || !activationsResult.data || !settingsResult.ok || !settingsResult.data) {
+          throw new Error("Unable to load monitor data");
+        }
+
+        const settingsJson = normalizeSettings(settingsResult.data, overviewJson);
+        const chartJson = normalizeChart(
+          chartResult.data,
+          chartRange.startIso,
+          chartRange.endIso,
+          settingsJson.costPerKilowattHour
+        );
+        const activationsJson = normalizeActivations(
+          activationsResult.data,
+          settingsJson.costPerKilowattHour
+        );
+        const analyticsJson =
+          analyticsResult.ok && analyticsResult.data ? (analyticsResult.data as AnalyticsResponse) : defaultAnalytics();
+        const alertsJson =
+          alertsResult.ok && Array.isArray(alertsResult.data) ? (alertsResult.data as AlertRecord[]) : [];
+        const annotationsJson =
+          annotationsResult.ok && Array.isArray(annotationsResult.data)
+            ? (annotationsResult.data as AnnotationRecord[])
+            : [];
 
         if (cancelled) {
           return;
